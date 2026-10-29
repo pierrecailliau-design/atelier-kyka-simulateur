@@ -3,6 +3,7 @@ import { FicheProjet } from "@/lib/fiche/schema";
 import { chargerGrille } from "@/lib/grille/sheets";
 import { envoyerLead, joindreVisuel } from "@/lib/hubspot";
 import { adresseIp, autoriser, reponseTropDAppels } from "@/lib/limite";
+import { pourClient } from "@/lib/prix/client";
 import { estimer } from "@/lib/prix/engine";
 
 const Corps = z.object({
@@ -25,8 +26,10 @@ export async function POST(req: Request) {
     return Response.json({ erreur: "Formulaire invalide", details: corps.error.issues }, { status: 400 });
   }
   const { contact, fiche, visuel } = corps.data;
-  // Le prix est recalculé côté serveur : le client ne l'envoie jamais.
+  // Le prix est recalculé côté serveur : le client ne l'envoie jamais. HubSpot reçoit le détail complet,
+  // le navigateur seulement la fourchette et la liste de ce qui est compris.
   const estimation = estimer(fiche, await chargerGrille());
+  const estimationClient = pourClient(estimation, true);
 
   try {
     const resultat = await envoyerLead(contact, fiche, estimation);
@@ -34,10 +37,10 @@ export async function POST(req: Request) {
     if (resultat.ok && resultat.dealId && resultat.contactId && visuel) {
       resultat.visuelJoint = await joindreVisuel(visuel, { dealId: resultat.dealId, contactId: resultat.contactId }, fiche);
     }
-    return Response.json({ estimation, hubspot: resultat });
+    return Response.json({ estimation: estimationClient, hubspot: resultat });
   } catch (err) {
     // Le client doit toujours voir son estimation, même si HubSpot tousse.
     console.error("HubSpot :", err);
-    return Response.json({ estimation, hubspot: { ok: false, raison: "Erreur HubSpot, lead à ressaisir" } });
+    return Response.json({ estimation: estimationClient, hubspot: { ok: false, raison: "Erreur HubSpot, lead à ressaisir" } });
   }
 }

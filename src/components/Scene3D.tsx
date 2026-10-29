@@ -183,6 +183,33 @@ function Panneau({
   );
 }
 
+/**
+ * Panneau à dessus en pente (porte de placard sous escalier ou sous pente) : rectangle dont le haut
+ * monte de `hDroite` à droite à `hGauche` à gauche, épaisseur E. Origine au coin bas gauche.
+ */
+function Trapeze({ x0, largeur, hGauche, hDroite, position, ...finition }: Finition & { x0: number; largeur: number; hGauche: number; hDroite: number; position: [number, number, number] }) {
+  const geometrie = useMemo(() => {
+    const forme = new THREE.Shape();
+    forme.moveTo(x0, 0);
+    forme.lineTo(x0 + largeur, 0);
+    forme.lineTo(x0 + largeur, hDroite);
+    forme.lineTo(x0, hGauche);
+    forme.closePath();
+    const g = new THREE.ExtrudeGeometry(forme, { depth: E, bevelEnabled: false });
+    g.translate(0, 0, -E / 2);
+    return g;
+  }, [x0, largeur, hGauche, hDroite]);
+  useEffect(() => () => geometrie.dispose(), [geometrie]);
+  return (
+    <mesh geometry={geometrie} position={position} castShadow receiveShadow>
+      <Matiere {...finition} />
+    </mesh>
+  );
+}
+
+/** Pente éventuelle d'un rangement : hauteur du dessus en fonction de x (haut à gauche, bas à droite). */
+type Pente = { active: boolean; hauteurEn: (x: number) => number; hMin: number };
+
 /** Poignée barre fine noire, moderne. */
 function Poignee({ position, vertical = true, longueur = 0.18 }: { position: [number, number, number]; vertical?: boolean; longueur?: number }) {
   return (
@@ -202,25 +229,42 @@ function Poignee({ position, vertical = true, longueur = 0.18 }: { position: [nu
 }
 
 /* ------------------------------------------------------------------ éléments mobiles */
+/** Hauteurs du haut de porte à ses bords gauche et droit (absents = porte rectangulaire). */
+type Haut = { hGauche: number; hDroite: number };
+
+/** Vantail de porte : rectangle, ou trapèze si `haut` est donné. `x0` = bord gauche en local, `yBas` = bas de la porte. */
+function VantailPorte({ x0, largeur, yBas, hauteur, haut, finition }: { x0: number; largeur: number; yBas: number; hauteur: number; haut?: Haut; finition: Finition }) {
+  if (haut) return <Trapeze x0={x0} largeur={largeur} hGauche={haut.hGauche} hDroite={haut.hDroite} position={[0, yBas, 0]} {...finition} />;
+  return <Panneau position={[x0 + largeur / 2, yBas + hauteur / 2, 0]} taille={[largeur, hauteur, E]} {...finition} />;
+}
+
 /** Porte battante : charnière à gauche (`cote` = 1) ou à droite (-1), ouvre vers le spectateur. */
-function Battante({ id, charniere, largeur, hauteur, y, z, cote, finition, angle = 1.6, poignee = true }: { id: string; charniere: number; largeur: number; hauteur: number; y: number; z: number; cote: 1 | -1; finition: Finition; angle?: number; poignee?: boolean }) {
+function Battante({ id, charniere, largeur, hauteur, y, z, cote, finition, angle = 1.6, poignee = true, haut }: { id: string; charniere: number; largeur: number; hauteur: number; y: number; z: number; cote: 1 | -1; finition: Finition; angle?: number; poignee?: boolean; haut?: Haut }) {
   const g = useRef<THREE.Group>(null);
+  const yBas = y - hauteur / 2;
+  const yPoignee = haut ? yBas + Math.min(haut.hGauche, haut.hDroite) * 0.5 : y;
   return (
     <Mobile id={id} appliquer={(t) => g.current && (g.current.rotation.y = -cote * t * angle)}>
       <group ref={g} position={[charniere, 0, z]}>
-        <Panneau position={[(cote * largeur) / 2, y, 0]} taille={[largeur, hauteur, E]} {...finition} />
-        {poignee && <Poignee position={[cote * (largeur - 0.06), y, E / 2]} />}
+        <VantailPorte x0={cote === 1 ? 0 : -largeur} largeur={largeur} yBas={yBas} hauteur={hauteur} haut={haut} finition={finition} />
+        {poignee && <Poignee position={[cote * (largeur - 0.06), yPoignee, E / 2]} />}
       </group>
     </Mobile>
   );
 }
 
 /** Porte pliante (deux vantaux articulés) : charnière à gauche (`cote` = 1) ou à droite (-1). */
-function Pliante({ id, charniere, largeur, hauteur, y, z, cote, finition }: { id: string; charniere: number; largeur: number; hauteur: number; y: number; z: number; cote: 1 | -1; finition: Finition }) {
+function Pliante({ id, charniere, largeur, hauteur, y, z, cote, finition, haut }: { id: string; charniere: number; largeur: number; hauteur: number; y: number; z: number; cote: 1 | -1; finition: Finition; haut?: Haut }) {
   const a = useRef<THREE.Group>(null);
   const b = useRef<THREE.Group>(null);
   const demi = (largeur - 0.006) / 2;
   const angle = 1.5;
+  const yBas = y - hauteur / 2;
+  const hMilieu = haut ? (haut.hGauche + haut.hDroite) / 2 : hauteur;
+  // moitié côté charnière (A) et moitié libre (B), avec leurs hauteurs gauche/droite respectives
+  const hautA = haut ? (cote === 1 ? { hGauche: haut.hGauche, hDroite: hMilieu } : { hGauche: hMilieu, hDroite: haut.hDroite }) : undefined;
+  const hautB = haut ? (cote === 1 ? { hGauche: hMilieu, hDroite: haut.hDroite } : { hGauche: haut.hGauche, hDroite: hMilieu }) : undefined;
+  const yPoignee = haut ? yBas + Math.min(haut.hGauche, haut.hDroite) * 0.5 : y;
   return (
     <Mobile
       id={id}
@@ -230,29 +274,37 @@ function Pliante({ id, charniere, largeur, hauteur, y, z, cote, finition }: { id
       }}
     >
       <group ref={a} position={[charniere, 0, z]}>
-        <Panneau position={[(cote * demi) / 2, y, 0]} taille={[demi, hauteur, E]} {...finition} />
+        <VantailPorte x0={cote === 1 ? 0 : -demi} largeur={demi} yBas={yBas} hauteur={hauteur} haut={hautA} finition={finition} />
         <group ref={b} position={[cote * (demi + 0.006), 0, 0]}>
-          <Panneau position={[(cote * demi) / 2, y, 0]} taille={[demi, hauteur, E]} {...finition} />
-          <Poignee position={[cote * 0.05, y, E / 2]} />
+          <VantailPorte x0={cote === 1 ? 0 : -demi} largeur={demi} yBas={yBas} hauteur={hauteur} haut={hautB} finition={finition} />
+          <Poignee position={[cote * 0.05, yPoignee, E / 2]} />
         </group>
       </group>
     </Mobile>
   );
 }
 
-/** Panneau coulissant : glisse de `course` (signée) devant son voisin. */
-function Coulissante({ id, x, y, z, largeur, hauteur, course, finition, suitTout }: { id: string; x: number; y: number; z: number; largeur: number; hauteur: number; course: number; finition: Finition; suitTout?: boolean }) {
+/** Panneau coulissant : glisse de `course` (signée) devant son voisin. `course` = 0 : panneau fixe. */
+function Coulissante({ id, x, y, z, largeur, hauteur, course, finition, suitTout, haut }: { id: string; x: number; y: number; z: number; largeur: number; hauteur: number; course: number; finition: Finition; suitTout?: boolean; haut?: Haut }) {
   const g = useRef<THREE.Group>(null);
-  return (
-    <Mobile id={id} suitTout={suitTout} appliquer={(t) => g.current && (g.current.position.x = x + t * course)}>
-      <group ref={g} position={[x, 0, z]}>
-        <Panneau position={[0, y, 0]} taille={[largeur, hauteur, E]} {...finition} />
-        {/* prise verticale creusée */}
-        <mesh position={[-Math.sign(course) * (largeur / 2 - 0.05), y, E / 2 + 0.001]}>
+  const yBas = y - hauteur / 2;
+  const yPoignee = haut ? yBas + Math.min(haut.hGauche, haut.hDroite) * 0.5 : y;
+  const contenu = (
+    <group ref={g} position={[x, 0, z]}>
+      <VantailPorte x0={-largeur / 2} largeur={largeur} yBas={yBas} hauteur={hauteur} haut={haut} finition={finition} />
+      {course !== 0 && (
+        /* prise verticale creusée */
+        <mesh position={[-Math.sign(course) * (largeur / 2 - 0.05), yPoignee, E / 2 + 0.001]}>
           <boxGeometry args={[0.022, 0.3, 0.004]} />
           <meshStandardMaterial color="#26262a" metalness={0.6} roughness={0.4} />
         </mesh>
-      </group>
+      )}
+    </group>
+  );
+  if (course === 0) return contenu;
+  return (
+    <Mobile id={id} suitTout={suitTout} appliquer={(t) => g.current && (g.current.position.x = x + t * course)}>
+      {contenu}
     </Mobile>
   );
 }
@@ -329,43 +381,64 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
   const miroirs = fiche.famille === "dressing" ? fiche.miroirPortes : 0;
   const led = fiche.famille === "dressing" ? fiche.eclairageLed : false;
   const tiroirs = fiche.tiroirs;
+  const configuration = fiche.famille === "placard" ? fiche.configuration : "standard";
+
+  // Pente du dessus : sous escalier (raide) ou sous pente (douce), haut à gauche, bas à droite.
+  const pente = useMemo<Pente>(() => {
+    const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+    const hMin = configuration === "sous_escalier" ? clamp(H - W * 0.7, 0.75, H * 0.8) : configuration === "sous_pente" ? clamp(H - W * 0.5, 1.0, H * 0.85) : H;
+    const active = configuration !== "standard" && hMin < H - 0.05;
+    return { active, hMin, hauteurEn: (x: number) => (active ? H - (H - hMin) * ((x + W / 2) / W) : H) };
+  }, [configuration, H, W]);
 
   const n = Math.max(1, Math.round(W / 0.6));
   const sw = (W - 2 * E) / n;
   const plinthe = 0.08;
   const finition: Finition = { gamme };
   const finitionPorte = (i: number): Finition => (i < miroirs ? { miroir: true } : { gamme });
+  /** Haut de porte (par rapport au bas de la porte) aux abscisses xa < xb, sous le dessus en pente. */
+  const hautPorte = (xa: number, xb: number): Haut | undefined => (pente.active ? { hGauche: pente.hauteurEn(xa) - E - 0.008 - plinthe, hDroite: pente.hauteurEn(xb) - E - 0.008 - plinthe } : undefined);
 
   const interieur = useMemo(() => {
     const elements: React.ReactNode[] = [];
     let tiroirsRestants = tiroirs;
     for (let i = 0; i < n; i++) {
-      const cx = -W / 2 + E + sw * (i + 0.5);
-      if (i > 0) elements.push(<Panneau key={`div${i}`} position={[-W / 2 + E + sw * i, H / 2, 0]} taille={[E, H - 2 * E, P - E]} {...finition} />);
+      const xa = -W / 2 + E + sw * i;
+      const xb = xa + sw;
+      const cx = (xa + xb) / 2;
+      const hSec = pente.hauteurEn(xb); // point le plus bas du dessus dans la section
+      if (i > 0) {
+        const hDiv = pente.hauteurEn(xa) - 2 * E;
+        elements.push(<Panneau key={`div${i}`} position={[xa, E + hDiv / 2, 0]} taille={[E, hDiv, P - E]} {...finition} />);
+      }
+      if (pente.active) {
+        const hFond = pente.hauteurEn(xb) - 2 * E;
+        elements.push(<Panneau key={`fond${i}`} position={[cx, E + hFond / 2, -P / 2 + E / 2]} taille={[sw, hFond, E]} {...finition} />);
+      }
       const dansSection = Math.min(3, tiroirsRestants);
       const hautTiroirs = plinthe + E + dansSection * 0.19;
-      const penderie = i % 2 === 0;
+      const penderie = i % 2 === 0 && hSec - hautTiroirs > 1.25;
       if (penderie) {
-        const yTringle = H - 0.26;
+        const yTringle = hSec - 0.26;
         elements.push(
           <mesh key={`tringle${i}`} position={[cx, yTringle, 0]} rotation={[0, 0, Math.PI / 2]}>
             <cylinderGeometry args={[0.011, 0.011, sw - E, 16]} />
             <meshStandardMaterial color="#9a9a9a" metalness={0.8} roughness={0.25} />
           </mesh>,
         );
-        elements.push(<Panneau key={`tab${i}`} position={[cx, H - 0.12, 0]} taille={[sw - E, E, P - 2 * E]} {...finition} />);
+        if (!pente.active) elements.push(<Panneau key={`tab${i}`} position={[cx, H - 0.12, 0]} taille={[sw - E, E, P - 2 * E]} {...finition} />);
         elements.push(<Cintres key={`cintres${i}`} cx={cx} y={yTringle} largeur={sw - E} profondeur={P} />);
-        if (H - 0.26 - 0.7 - hautTiroirs > 0.3) {
+        if (hSec - 0.26 - 0.7 - hautTiroirs > 0.3) {
           elements.push(<Panneau key={`tabbas${i}`} position={[cx, hautTiroirs + 0.02, 0]} taille={[sw - E, E, P - 2 * E]} {...finition} />);
         }
       } else {
         if (dansSection > 0) elements.push(<Panneau key={`tabtir${i}`} position={[cx, hautTiroirs + 0.02, 0]} taille={[sw - E, E, P - 2 * E]} {...finition} />);
-        const nb = Math.max(3, Math.round((H - hautTiroirs) / 0.36));
-        const pas = (H - E - hautTiroirs) / nb;
+        const nb = Math.max(2, Math.round((hSec - hautTiroirs) / 0.36));
+        const pas = (hSec - E - hautTiroirs) / nb;
         for (let k = 1; k < nb; k++) {
           const y = hautTiroirs + pas * k;
           elements.push(<Panneau key={`etag${i}-${k}`} position={[cx, y, 0]} taille={[sw - E, E, P - 2 * E]} {...finition} />);
-          if (k % 2 === 1) elements.push(<PileLinge key={`pile${i}-${k}`} position={[cx - (k % 4 === 1 ? 0.05 : -0.05), y + E / 2, -0.02]} profondeur={P} />);
+          if (k % 2 === 1 && hSec - y > 0.2) elements.push(<PileLinge key={`pile${i}-${k}`} position={[cx - (k % 4 === 1 ? 0.05 : -0.05), y + E / 2, -0.02]} profondeur={P} />);
         }
       }
       for (let t = 0; t < dansSection; t++) {
@@ -375,7 +448,7 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
     }
     return elements;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [W, H, P, n, sw, gamme, tiroirs]);
+  }, [W, H, P, n, sw, gamme, tiroirs, pente]);
 
   const facades = useMemo(() => {
     const elements: React.ReactNode[] = [];
@@ -385,8 +458,9 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
     if (portes === "battant") {
       for (let i = 0; i < n; i++) {
         const cote: 1 | -1 = i % 2 === 0 ? 1 : -1;
-        const charniere = cote === 1 ? -W / 2 + E + sw * i + 0.002 : -W / 2 + E + sw * (i + 1) - 0.002;
-        elements.push(<Battante key={`p${i}`} id={`porte-${i}`} charniere={charniere} largeur={sw - 0.006} hauteur={hPorte} y={yPorte} z={zPorte} cote={cote} finition={finitionPorte(i)} />);
+        const xa = -W / 2 + E + sw * i + 0.003;
+        const charniere = cote === 1 ? xa : xa + sw - 0.006;
+        elements.push(<Battante key={`p${i}`} id={`porte-${i}`} charniere={charniere} largeur={sw - 0.006} hauteur={hPorte} y={yPorte} z={zPorte} cote={cote} finition={finitionPorte(i)} haut={hautPorte(xa, xa + sw - 0.006)} />);
       }
     } else if (portes === "coulissant") {
       const np = W > 2.4 ? 3 : 2;
@@ -395,37 +469,53 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
       for (let i = 0; i < np; i++) {
         const x = -W / 2 + E + pas * (i + 0.5);
         const z = zPorte + (i % 2 === 0 ? E + 0.008 : 0);
-        const course = (i < np - 1 ? 1 : -1) * pas * 0.94;
+        // Sous une pente, les panneaux ne peuvent glisser que vers le côté haut ; celui du bout haut est fixe.
+        const course = pente.active ? (i === 0 ? 0 : -pas * 0.94) : (i < np - 1 ? 1 : -1) * pas * 0.94;
         // « Tout ouvrir » ne déplace que les panneaux pairs : les impairs servent de fond, sinon tout se recouvre
-        elements.push(<Coulissante key={`c${i}`} id={`porte-${i}`} x={x} y={yPorte} z={z} largeur={wp} hauteur={hPorte} course={course} finition={finitionPorte(i)} suitTout={i % 2 === 0} />);
+        elements.push(<Coulissante key={`c${i}`} id={`porte-${i}`} x={x} y={yPorte} z={z} largeur={wp} hauteur={hPorte} course={course} finition={finitionPorte(i)} suitTout={pente.active ? i >= 1 : i % 2 === 0} haut={hautPorte(x - wp / 2, x + wp / 2)} />);
       }
-      // bandeau haut dans la finition du meuble, rail discret dessous ; rail bas au sol
-      elements.push(<Panneau key="bandeau" position={[0, H - 0.03, zPorte + E / 2 + 0.004]} taille={[W, 0.06, 2 * E + 0.016]} {...finition} arrondi={0.003} />);
-      elements.push(<Panneau key="railh" position={[0, H - 0.062, zPorte + E / 2 + 0.004]} taille={[W - 0.01, 0.006, 2 * E + 0.012]} couleur="#4a4a4e" metal={0.7} rugosite={0.3} arrondi={0.001} />);
+      if (pente.active) {
+        // rail haut qui suit la pente
+        const dh = pente.hMin - H;
+        const longueur = Math.hypot(W, dh);
+        elements.push(<Panneau key="railh" position={[0, (H + pente.hMin) / 2 - E - 0.006, zPorte + E / 2 + 0.004]} rotation={[0, 0, Math.atan2(dh, W)]} taille={[longueur - 0.02, 0.006, 2 * E + 0.012]} couleur="#4a4a4e" metal={0.7} rugosite={0.3} arrondi={0.001} />);
+      } else {
+        // bandeau haut dans la finition du meuble, rail discret dessous ; rail bas au sol
+        elements.push(<Panneau key="bandeau" position={[0, H - 0.03, zPorte + E / 2 + 0.004]} taille={[W, 0.06, 2 * E + 0.016]} {...finition} arrondi={0.003} />);
+        elements.push(<Panneau key="railh" position={[0, H - 0.062, zPorte + E / 2 + 0.004]} taille={[W - 0.01, 0.006, 2 * E + 0.012]} couleur="#4a4a4e" metal={0.7} rugosite={0.3} arrondi={0.001} />);
+      }
       elements.push(<Panneau key="railb" position={[0, plinthe + 0.004, zPorte + E / 2 + 0.004]} taille={[W, 0.008, 2 * E + 0.016]} couleur="#4a4a4e" metal={0.7} rugosite={0.3} arrondi={0.002} />);
     } else if (portes === "pliant") {
       for (let i = 0; i < n; i++) {
         const cote: 1 | -1 = i % 2 === 0 ? 1 : -1;
-        const charniere = cote === 1 ? -W / 2 + E + sw * i + 0.002 : -W / 2 + E + sw * (i + 1) - 0.002;
-        elements.push(<Pliante key={`pl${i}`} id={`porte-${i}`} charniere={charniere} largeur={sw - 0.006} hauteur={hPorte} y={yPorte} z={zPorte} cote={cote} finition={finitionPorte(i)} />);
+        const xa = -W / 2 + E + sw * i + 0.003;
+        const charniere = cote === 1 ? xa : xa + sw - 0.006;
+        elements.push(<Pliante key={`pl${i}`} id={`porte-${i}`} charniere={charniere} largeur={sw - 0.006} hauteur={hPorte} y={yPorte} z={zPorte} cote={cote} finition={finitionPorte(i)} haut={hautPorte(xa, xa + sw - 0.006)} />);
       }
     }
     return elements;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [portes, n, sw, W, H, P, gamme, miroirs]);
+  }, [portes, n, sw, W, H, P, gamme, miroirs, pente]);
+
+  // dessus : plat, ou en pente (panneau incliné de la hauteur pleine à gauche jusqu'à hMin à droite)
+  const dessus = pente.active ? (
+    <Panneau position={[0, (H + pente.hMin) / 2 - E / 2, 0]} rotation={[0, 0, Math.atan2(pente.hMin - H, W)]} taille={[Math.hypot(W, H - pente.hMin), E, P]} {...finition} />
+  ) : (
+    <Panneau position={[0, H - E / 2, 0]} taille={[W, E, P]} {...finition} />
+  );
 
   return (
     <group>
       {/* caisson */}
       <Panneau position={[-W / 2 + E / 2, H / 2, 0]} taille={[E, H, P]} {...finition} />
-      <Panneau position={[W / 2 - E / 2, H / 2, 0]} taille={[E, H, P]} {...finition} />
-      <Panneau position={[0, H - E / 2, 0]} taille={[W, E, P]} {...finition} />
+      <Panneau position={[W / 2 - E / 2, pente.hMin / 2, 0]} taille={[E, pente.hMin, P]} {...finition} />
+      {dessus}
       <Panneau position={[0, plinthe + E / 2, 0]} taille={[W - 2 * E, E, P]} {...finition} />
       <Panneau position={[0, plinthe / 2, -0.03]} taille={[W - 2 * E, plinthe, P - 0.06]} couleur="#2e2b29" rugosite={0.6} arrondi={0.002} />
-      <Panneau position={[0, H / 2, -P / 2 + E / 2]} taille={[W - 2 * E, H - 2 * E, E]} {...finition} />
+      {!pente.active && <Panneau position={[0, H / 2, -P / 2 + E / 2]} taille={[W - 2 * E, H - 2 * E, E]} {...finition} />}
       {interieur}
       {facades}
-      {led && (
+      {led && !pente.active && (
         <>
           <mesh position={[0, H - E - 0.006, P / 2 - 0.035]}>
             <boxGeometry args={[W - 2 * E - 0.02, 0.006, 0.014]} />
@@ -649,22 +739,24 @@ const COULEUR_FENETRE = { pvc: "#f5f5f3", aluminium: "#9a9ea3", bois: "#b4804c" 
 function Vantail({ id, charniere, largeur, hauteur, yBas, z, cote, finition, mode }: { id: string; charniere: number; largeur: number; hauteur: number; yBas: number; z: number; cote: 1 | -1; finition: Finition; mode: FicheFenetre["ouverture"] }) {
   const g = useRef<THREE.Group>(null);
   const b = 0.05;
+  // Pivot au bas du vantail (y = yBas) : rotation en y pour battre, en x pour basculer (oscillo-battant).
   const appliquer = (t: number) => {
     if (!g.current) return;
     if (mode === "coulissant") g.current.position.x = charniere + cote * t * largeur * 0.92;
-    else if (mode !== "fixe") g.current.rotation.y = -cote * t * 1.25;
+    else if (mode === "oscillo_battant") g.current.rotation.x = t * 0.19;
+    else if (mode === "battant") g.current.rotation.y = -cote * t * 1.25;
   };
   const contenu = (
-    <group ref={g} position={[charniere, 0, z]}>
-      <Panneau position={[(cote * largeur) / 2, yBas + b / 2, 0]} taille={[largeur, b, 0.06]} {...finition} arrondi={0.003} />
-      <Panneau position={[(cote * largeur) / 2, yBas + hauteur - b / 2, 0]} taille={[largeur, b, 0.06]} {...finition} arrondi={0.003} />
-      <Panneau position={[cote * (b / 2), yBas + hauteur / 2, 0]} taille={[b, hauteur, 0.06]} {...finition} arrondi={0.003} />
-      <Panneau position={[cote * (largeur - b / 2), yBas + hauteur / 2, 0]} taille={[b, hauteur, 0.06]} {...finition} arrondi={0.003} />
-      <mesh position={[(cote * largeur) / 2, yBas + hauteur / 2, 0]}>
+    <group ref={g} position={[charniere, yBas, z]}>
+      <Panneau position={[(cote * largeur) / 2, b / 2, 0]} taille={[largeur, b, 0.06]} {...finition} arrondi={0.003} />
+      <Panneau position={[(cote * largeur) / 2, hauteur - b / 2, 0]} taille={[largeur, b, 0.06]} {...finition} arrondi={0.003} />
+      <Panneau position={[cote * (b / 2), hauteur / 2, 0]} taille={[b, hauteur, 0.06]} {...finition} arrondi={0.003} />
+      <Panneau position={[cote * (largeur - b / 2), hauteur / 2, 0]} taille={[b, hauteur, 0.06]} {...finition} arrondi={0.003} />
+      <mesh position={[(cote * largeur) / 2, hauteur / 2, 0]}>
         <boxGeometry args={[largeur - 2 * b, hauteur - 2 * b, 0.016]} />
         <meshPhysicalMaterial color="#d8e8f0" transparent opacity={0.22} roughness={0.03} metalness={0.05} clearcoat={1} />
       </mesh>
-      {mode !== "fixe" && <Poignee position={[cote * (largeur - b - 0.02), yBas + hauteur / 2, 0.03]} longueur={0.14} />}
+      {mode !== "fixe" && <Poignee position={[cote * (largeur - b - 0.02), hauteur / 2, 0.03]} longueur={0.14} />}
     </group>
   );
   if (mode === "fixe") return contenu;
@@ -886,7 +978,9 @@ export default function Scene3D({ fiche, onReady }: { fiche: FicheProjet; onRead
               Tout fermer
             </button>
           </div>
-          <div className="pointer-events-none absolute bottom-4 right-4 rounded-full bg-white/80 px-3 py-1 text-xs text-stone-600 backdrop-blur">Cliquez sur une porte ou un tiroir pour l’ouvrir</div>
+          <div className="pointer-events-none absolute bottom-4 right-4 rounded-full bg-white/80 px-3 py-1 text-xs text-stone-600 backdrop-blur">
+            {fiche.famille === "fenetre" ? (fiche.ouverture === "oscillo_battant" ? "Cliquez sur un vantail pour le basculer" : "Cliquez sur un vantail pour l’ouvrir") : "Cliquez sur une porte ou un tiroir pour l’ouvrir"}
+          </div>
         </>
       )}
     </>

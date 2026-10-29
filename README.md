@@ -10,8 +10,11 @@ Site où un client décrit son projet de menuiserie (dressing, placard, cuisine,
 - [x] Écran 1-2 : prompt, exemples, questions ; extraction de la fiche par Claude (`/api/fiche`, outil structuré) avec repli heuristique sans clé IA (`src/lib/ia`)
 - [x] Écran 3 : 3D paramétrique React Three Fiber pour les 4 familles + curseurs (`src/components/Scene3D.tsx`, `Controles.tsx`). Rendu showroom : matières par gamme (mélaminé, laqué satiné, chêne à veinage procédural), lumière d'atelier (Environment + ombres douces), parquet, chants arrondis, poignées fines, aménagement (cintres, linge, évier, plaque, four). Portes, tiroirs et vantaux s'ouvrent au clic (animation amortie), boutons « Tout ouvrir / Tout fermer ». Rendu à la demande (`frameloop="demand"`), léger sur mobile.
 - [x] Écran 4 : formulaire contact → `/api/lead` → HubSpot (contact + transaction, pipeline « Simulateur Atelier Kyka »), visuel 3D (JPEG ≈ 30-100 Ko) joint à la transaction en note
-- [x] Écran 5 : estimation détaillée, « Être rappelé » avec créneau → `/api/rappel` → tâche d'appel HubSpot (échéance prochain jour ouvré), « Modifier mon projet »
+- [x] Écran 5 : fourchette + liste de ce qui est compris (sans montants ni tarifs unitaires : la grille ne sort jamais du serveur, `src/lib/prix/client.ts`), « Être rappelé » avec créneau → `/api/rappel` → tâche d'appel HubSpot (échéance prochain jour ouvré), « Modifier mon projet »
 - [x] Guide « Comment mesurer ? » sur l'écran des questions, page `/mentions-legales` (réserves entre crochets à compléter), Vercel Analytics (un événement par étape), limite de débit par IP sur les routes API
+- [x] Placard sous pente / sous escalier dessiné avec le dessus en pente et des portes trapézoïdales ; vantail oscillo-battant qui bascule
+- [x] Favicon, icône iOS, image d'aperçu pour le partage (`src/app/icon.svg`, `apple-icon.png`, `opengraph-image.png`), métadonnées Open Graph (`NEXT_PUBLIC_SITE_URL`)
+- [x] `npm run test:ia` : 30 phrases clients avec attendus → score ; `--heuristique` pour le mode sans clé (23/30 ; l'objectif 25/30 se mesure avec Claude)
 - [ ] E-mail de récapitulatif au client (workflow HubSpot, déclenché à la création de la transaction)
 - [ ] Cloudflare Turnstile si les robots passent la limite de débit
 
@@ -19,7 +22,8 @@ Site où un client décrit son projet de menuiserie (dressing, placard, cuisine,
 
 ```bash
 npm install
-npm test          # moteur de prix, HubSpot (simulé), limite de débit — 25 tests
+npm test          # moteur de prix, HubSpot (simulé), limite de débit, estimation client — 27 tests
+npm run test:ia   # lecture IA sur 30 phrases (clé dans .env.local) ; écrit scripts/resultats-ia.md
 npm run dev       # http://localhost:3000
 ```
 

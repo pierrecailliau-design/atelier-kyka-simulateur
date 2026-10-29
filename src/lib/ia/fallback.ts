@@ -21,48 +21,71 @@ function detecterFamille(t: string): Famille | undefined {
   return undefined;
 }
 
-/** Extrait les nombres suivis d'une unité de longueur, convertis en mètres, dans l'ordre du texte. */
-function dimensions(t: string): number[] {
-  const res: number[] = [];
+/** Un nombre converti en mètres : 240 (sans unité) → 2,40 ; 2,4 → 2,4. */
+const enMetres = (brut: string, unite?: string) => {
+  const n = Number(brut.replace(",", "."));
+  if (unite === "cm" || (!unite && n > 10)) return n / 100;
+  if (unite === "mm") return n / 1000;
+  return n;
+};
+
+/**
+ * Extrait les longueurs du texte, converties en mètres, dans l'ordre où elles apparaissent,
+ * plus celles qui sont nommées (« 40 de profondeur », « 130 de haut »).
+ */
+function dimensions(t: string): { ordre: number[]; nommees: Partial<Record<"largeur" | "hauteur" | "profondeur", number>> } {
+  const trouvees: { index: number; valeur: number }[] = [];
+  const pris = new Set<number>();
+  const ajouter = (index: number, valeur: number) => {
+    if (pris.has(index)) return;
+    pris.add(index);
+    trouvees.push({ index, valeur });
+  };
   // 2m40, 2 m 40
-  for (const m of t.matchAll(/(\d+)\s*m\s*(\d{1,2})(?!\d)/g)) {
-    res.push(Number(m[1]) + Number(m[2]) / (m[2].length === 1 ? 10 : 100));
-  }
+  for (const m of t.matchAll(/(\d+)\s*m\s*(\d{1,2})(?!\d)/g)) ajouter(m.index, Number(m[1]) + Number(m[2]) / (m[2].length === 1 ? 10 : 100));
   // 2,40 m / 240 cm / 2.4 metres
-  for (const m of t.matchAll(/(\d+(?:[.,]\d+)?)\s*(cm|mm|m|metres?)(?![a-z])/g)) {
-    const n = Number(m[1].replace(",", "."));
-    if (m[2] === "cm") res.push(n / 100);
-    else if (m[2] === "mm") res.push(n / 1000);
-    else res.push(n);
+  for (const m of t.matchAll(/(\d+(?:[.,]\d+)?)\s*(cm|mm|m|metres?)(?![a-z])/g)) ajouter(m.index, enMetres(m[1], m[2].startsWith("m") && m[2] !== "mm" ? "m" : m[2]));
+  // 2,40 x 2,50 / 120 par 140 (sans unité)
+  for (const m of t.matchAll(/(\d+(?:[.,]\d+)?)\s*(?:x|×|\*|par|sur)\s*(\d+(?:[.,]\d+)?)/g)) {
+    ajouter(m.index, enMetres(m[1]));
+    ajouter(m.index + m[0].length - m[2].length, enMetres(m[2]));
   }
-  // 2,40 x 2,50 (sans unité)
-  if (res.length < 2) {
-    for (const m of t.matchAll(/(\d+(?:[.,]\d+)?)\s*(?:x|×|\*|par|sur)\s*(\d+(?:[.,]\d+)?)/g)) {
-      const a = Number(m[1].replace(",", "."));
-      const b = Number(m[2].replace(",", "."));
-      res.push(a > 10 ? a / 100 : a, b > 10 ? b / 100 : b);
-    }
+  // dimensions nommées : « 40 de profondeur », « 130 de haut », « 2m de large »
+  const nommees: Partial<Record<"largeur" | "hauteur" | "profondeur", number>> = {};
+  for (const m of t.matchAll(/(\d+(?:[.,]\d+)?)\s*(cm|mm|m)?\s*(?:\d{1,2}\s*)?de\s+(large|largeur|long|longueur|haut|hauteur|profondeur|prof)\b/g)) {
+    const precedent = trouvees.find((d) => d.index === m.index);
+    const valeur = precedent ? precedent.valeur : enMetres(m[1], m[2]);
+    const cle = /larg|long/.test(m[3]) ? "largeur" : /haut/.test(m[3]) ? "hauteur" : "profondeur";
+    nommees[cle] = valeur;
+    if (!precedent) ajouter(m.index, valeur);
   }
-  return res.filter((n) => n > 0.2 && n < 20);
+  const ordre = trouvees
+    .sort((a, b) => a.index - b.index)
+    .map((d) => d.valeur)
+    .filter((n) => n > 0.2 && n < 20);
+  return { ordre, nommees };
 }
 
 function gamme(t: string): string | undefined {
   if (/chene|noyer|massif|placage|premium|haut de gamme/.test(t)) return "premium";
   if (/laque|mat\b|couleur|confort|mdf/.test(t)) return "confort";
-  if (/melamine|essentiel|basique|economique|pas cher|budget/.test(t)) return "essentiel";
+  if (/melamine|essentiel|basique|economique|pas cher|moins cher|budget|premier prix/.test(t)) return "essentiel";
   return undefined;
 }
 
 export function extraireHeuristique(texte: string, familleChoisie?: Famille): ReponseIA {
   const t = norm(texte);
   const famille = familleChoisie ?? detecterFamille(t);
-  const dims = dimensions(t);
+  const { ordre, nommees } = dimensions(t);
+  // Les dimensions nommées priment ; les autres se lisent dans l'ordre largeur, hauteur, profondeur.
+  const restantes = ordre.filter((v) => !Object.values(nommees).includes(v));
+  const dims = [nommees.largeur ?? restantes.shift(), nommees.hauteur ?? restantes.shift(), nommees.profondeur ?? restantes.shift()];
   const brut: Record<string, unknown> = { famille, commentaire: texte.slice(0, 2000) };
   const g = gamme(t);
   if (g) brut.gamme = g;
   const tiroirs = t.match(/(\d+)\s*tiroirs?/);
   if (tiroirs) brut.tiroirs = Number(tiroirs[1]);
-  const quantite = t.match(/(\d+)\s*(fenetres|portes-fenetres|exemplaires|pieces)/);
+  const quantite = t.match(/(\d+)\s*(?:[a-z]+\s+)?(fenetres?|portes-fenetres?|exemplaires|pieces)/);
 
   switch (famille) {
     case "dressing":
@@ -90,6 +113,7 @@ export function extraireHeuristique(texte: string, familleChoisie?: Famille): Re
     case "cuisine": {
       if (dims[0]) brut.longueurBasM = dims[0];
       if (dims[1] !== undefined) brut.longueurHautM = dims[1];
+      if (/sans (meubles? )?hauts?/.test(t)) brut.longueurHautM = 0;
       brut.implantation = /ilot/.test(t) ? "ilot" : /en u\b/.test(t) ? "U" : /en l\b/.test(t) ? "L" : /lineaire|en ligne|en longueur/.test(t) ? "lineaire" : undefined;
       brut.planTravail = /quartz|pierre|granit/.test(t) ? "quartz" : /bois|chene/.test(t) ? "bois" : /stratifie/.test(t) ? "stratifie" : undefined;
       const colonnes = t.match(/(\d+)\s*colonnes?/);

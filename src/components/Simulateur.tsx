@@ -6,7 +6,7 @@ import type { Famille, FicheProjet } from "@/lib/fiche/schema";
 import { LIBELLES } from "@/lib/fiche/schema";
 import { OPTIONS_FAMILLE, libelleChamp } from "@/lib/fiche/libelles";
 import type { Question, ReponseIA, Tour } from "@/lib/ia/types";
-import type { Estimation } from "@/lib/prix/engine";
+import type { EstimationClient } from "@/lib/prix/client";
 import type { Creneau } from "@/lib/hubspot";
 import { suivre } from "@/lib/suivi";
 import Controles from "./Controles";
@@ -28,7 +28,7 @@ export default function Simulateur() {
   const [reponses, setReponses] = useState<Record<string, unknown>>({});
   const [precision, setPrecision] = useState("");
   const [fiche, setFiche] = useState<FicheProjet | null>(null);
-  const [estimation, setEstimation] = useState<Estimation | null>(null);
+  const [estimation, setEstimation] = useState<EstimationClient | null>(null);
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [contact, setContact] = useState({ prenom: "", email: "", telephone: "", consentement: false });
@@ -100,7 +100,7 @@ export default function Simulateur() {
     if (!fiche) return;
     const t = setTimeout(async () => {
       const res = await fetch("/api/prix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fiche }) });
-      if (res.ok) setEstimation((await res.json()).estimation as Estimation);
+      if (res.ok) setEstimation((await res.json()).estimation as EstimationClient);
     }, 250);
     return () => clearTimeout(t);
   }, [fiche]);
@@ -121,7 +121,7 @@ export default function Simulateur() {
       const res = await fetch("/api/lead", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contact, fiche, visuel }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.erreur ?? "Formulaire invalide");
-      setEstimation(data.estimation as Estimation);
+      setEstimation(data.estimation as EstimationClient);
       if (!data.hubspot?.ok) console.warn("Lead non transmis :", data.hubspot?.raison);
       setLead(data.hubspot?.ok ? { dealId: data.hubspot.dealId, contactId: data.hubspot.contactId } : null);
       setRappel("non");
@@ -299,7 +299,7 @@ export default function Simulateur() {
               </form>
             )}
 
-            {etape === "estimation" && estimation && (
+            {etape === "estimation" && estimation && estimation.fourchette && (
               <div>
                 <div className="text-xs uppercase tracking-wider text-stone-500">Estimation indicative</div>
                 <div className="mt-1 text-3xl font-semibold text-stone-900">
@@ -309,16 +309,17 @@ export default function Simulateur() {
                   {estimation.regles.tvaIncluse ? "TTC" : "HT"}
                   {estimation.regles.poseIncluse ? ", pose incluse" : ", hors pose"} · valable {estimation.regles.validiteJours} jours · hors visite technique
                 </div>
-                <ul className="mt-5 divide-y divide-stone-100 text-sm">
-                  <Ligne libelle={estimation.base.libelle} detail={estimation.base.detail} montant={estimation.base.montant} />
-                  {estimation.optionsFixes.map((l) => (
-                    <Ligne key={l.code} libelle={l.libelle} detail={l.detail} montant={l.montant} />
+                {/* Ce qui est compris, sans les montants : la grille reste à l'atelier. */}
+                <div className="mt-5 text-xs uppercase tracking-wider text-stone-500">Compris dans cette estimation</div>
+                <ul className="mt-2 divide-y divide-stone-100 text-sm">
+                  {estimation.lignes.map((l) => (
+                    <Ligne key={l.code} libelle={l.libelle} detail={l.quantite} />
                   ))}
-                  {estimation.pourcentages.map((l) => (
-                    <Ligne key={l.code} libelle={l.libelle} detail={l.detail} montant={l.montant} />
+                  {estimation.majorations.map((l) => (
+                    <Ligne key={l.code} libelle={l.libelle} detail="" />
                   ))}
-                  {estimation.quantite > 1 && <Ligne libelle={`× ${estimation.quantite} exemplaires`} detail="" montant={estimation.prixAvantMinimum} />}
-                  {estimation.minimumApplique && <Ligne libelle="Minimum de commande appliqué" detail="" montant={estimation.prixCalcule} />}
+                  {estimation.quantite > 1 && <Ligne libelle={`${estimation.quantite} exemplaires`} detail="" />}
+                  {estimation.minimumApplique && <Ligne libelle="Minimum de commande appliqué" detail="" />}
                 </ul>
                 {estimation.optionsNonChiffrees.length > 0 && <p className="mt-3 text-xs text-stone-500">À chiffrer lors de la visite : {estimation.optionsNonChiffrees.join(", ")}.</p>}
                 <div className="mt-6 space-y-3">
@@ -445,14 +446,11 @@ function Champ({ label, valeur, onChange, type = "text" }: { label: string; vale
   );
 }
 
-function Ligne({ libelle, detail, montant }: { libelle: string; detail: string; montant: number }) {
+function Ligne({ libelle, detail }: { libelle: string; detail: string }) {
   return (
     <li className="flex items-baseline justify-between gap-3 py-2">
-      <div>
-        <div className="text-stone-800">{libelle}</div>
-        {detail && <div className="text-xs text-stone-400">{detail}</div>}
-      </div>
-      <div className="tabular-nums text-stone-700">{euros(montant)}</div>
+      <div className="text-stone-800">{libelle}</div>
+      {detail && <div className="text-xs tabular-nums text-stone-400">{detail}</div>}
     </li>
   );
 }

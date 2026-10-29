@@ -17,8 +17,10 @@ import type { Gamme, Grille, OptionTarif, TarifBase } from "../grille/types";
 export interface LigneEstimation {
   code: string;
   libelle: string;
-  /** Lecture humaine du calcul, ex. « 2,4 ml × 700 € ». */
+  /** Lecture humaine du calcul, ex. « 2,4 ml × 700 € ». Usage interne (HubSpot, tests) : expose le tarif unitaire. */
   detail: string;
+  /** Quantité seule, sans prix, ex. « 2,4 ml », « 4 unités », « +15 % » : c'est ce que voit le client. */
+  quantite: string;
   montant: number;
 }
 
@@ -110,6 +112,7 @@ class Calcul {
       code,
       libelle: opt.libelle,
       detail: `${fmt(qte)} ${unite} × ${euros(opt.montant)}`,
+      quantite: `${fmt(qte)} ${unite}`,
       montant: arrondi(qte * opt.montant),
     });
   }
@@ -118,7 +121,7 @@ class Calcul {
   pct(code: string) {
     const opt = this.trouver(code);
     if (!opt) return;
-    this.pourcentages.push({ code, libelle: opt.libelle, detail: `+${fmt(opt.montant)} %`, montant: opt.montant });
+    this.pourcentages.push({ code, libelle: opt.libelle, detail: `+${fmt(opt.montant)} %`, quantite: "", montant: opt.montant });
   }
 
   /** Majoration conditionnelle de hauteur (règle, pas option). */
@@ -129,6 +132,7 @@ class Calcul {
         code: "hauteur",
         libelle: `Hauteur supérieure à ${fmt(r.hauteurMajorationSeuilM)} m`,
         detail: `+${fmt(r.hauteurMajorationPct)} %`,
+        quantite: "",
         montant: r.hauteurMajorationPct,
       });
     }
@@ -147,6 +151,7 @@ function baseLigne(t: TarifBase, gamme: Gamme, quantiteUnite: number, libelle?: 
     code: t.famille,
     libelle: libelle ?? t.libelle,
     detail: `${fmt(q)} ${unite}${minimum} × ${euros(prixUnite)}`,
+    quantite: `${fmt(q)} ${unite}${minimum}`,
     montant: arrondi(q * prixUnite),
   };
 }
