@@ -8,7 +8,7 @@ Site où un client décrit son projet de menuiserie (dressing, placard, cuisine,
 - [x] Fiche projet : schéma zod des quatre familles, valeurs par défaut (`src/lib/fiche`)
 - [x] Moteur de prix déterministe + 15 tests (`src/lib/prix`)
 - [x] Écran 1-2 : prompt, exemples, questions ; extraction de la fiche par Claude (`/api/fiche`, outil structuré) avec repli heuristique sans clé IA (`src/lib/ia`)
-- [x] Écran 3 : 3D paramétrique React Three Fiber pour les 4 familles + curseurs (`src/components/Scene3D.tsx`, `Controles.tsx`)
+- [x] Écran 3 : 3D paramétrique React Three Fiber pour les 4 familles + curseurs (`src/components/Scene3D.tsx`, `Controles.tsx`). Rendu showroom : matières par gamme (mélaminé, laqué satiné, chêne à veinage procédural), lumière d'atelier (Environment + ombres douces), parquet, chants arrondis, poignées fines, aménagement (cintres, linge, évier, plaque, four). Portes, tiroirs et vantaux s'ouvrent au clic (animation amortie), boutons « Tout ouvrir / Tout fermer ». Rendu à la demande (`frameloop="demand"`), léger sur mobile.
 - [x] Écran 4 : formulaire contact → `/api/lead` → HubSpot (contact + transaction, pipeline « Simulateur Atelier Kyka »), visuel 3D (JPEG ≈ 30-100 Ko) joint à la transaction en note
 - [x] Écran 5 : estimation détaillée, « Être rappelé » avec créneau → `/api/rappel` → tâche d'appel HubSpot (échéance prochain jour ouvré), « Modifier mon projet »
 - [x] Guide « Comment mesurer ? » sur l'écran des questions, page `/mentions-legales` (réserves entre crochets à compléter), Vercel Analytics (un événement par étape), limite de débit par IP sur les routes API

@@ -260,7 +260,7 @@ export default function Simulateur() {
         <section className="grid flex-1 gap-6 lg:grid-cols-[1fr_360px]">
           <div className="relative h-[52vh] min-h-[360px] overflow-hidden rounded-3xl border border-stone-200 bg-[#f7f4ef] shadow-inner lg:h-auto lg:min-h-[560px]">
             <Scene3D fiche={fiche} onReady={onSceneReady} />
-            <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-white/80 px-3 py-1 text-xs text-stone-600 backdrop-blur">{LIBELLES[fiche.famille]} · faites tourner la vue</div>
+            <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-white/80 px-3 py-1 text-xs text-stone-600 backdrop-blur">{LIBELLES[fiche.famille]} · glissez pour tourner la vue</div>
             {fiche.defautsAppliques.length > 0 && (
               <div className="pointer-events-none absolute bottom-4 left-4 rounded-full bg-amber-50/90 px-3 py-1 text-xs text-amber-800 backdrop-blur">Valeurs standard appliquées : {fiche.defautsAppliques.map(libelleChamp).join(", ")}</div>
             )}
