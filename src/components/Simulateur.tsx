@@ -7,7 +7,10 @@ import { LIBELLES } from "@/lib/fiche/schema";
 import { OPTIONS_FAMILLE, libelleChamp } from "@/lib/fiche/libelles";
 import type { Question, ReponseIA, Tour } from "@/lib/ia/types";
 import type { Estimation } from "@/lib/prix/engine";
+import type { Creneau } from "@/lib/hubspot";
+import { suivre } from "@/lib/suivi";
 import Controles from "./Controles";
+import GuideMesure from "./GuideMesure";
 
 const Scene3D = dynamic(() => import("./Scene3D"), { ssr: false, loading: () => <div className="flex h-full items-center justify-center text-stone-400">Chargement de la 3D…</div> });
 
@@ -29,7 +32,9 @@ export default function Simulateur() {
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [contact, setContact] = useState({ prenom: "", email: "", telephone: "", consentement: false });
-  const [rappel, setRappel] = useState(false);
+  const [lead, setLead] = useState<{ dealId?: string; contactId?: string } | null>(null);
+  const [rappel, setRappel] = useState<"non" | "envoi" | "fait">("non");
+  const [creneau, setCreneau] = useState<Creneau>("indifferent");
   const capture = useRef<(() => string) | null>(null);
 
   /* ---------------------------------------------------------- appels API */
@@ -106,12 +111,22 @@ export default function Simulateur() {
     setChargement(true);
     setErreur(null);
     try {
-      const res = await fetch("/api/lead", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contact, fiche }) });
+      // La vue 3D telle que le client l'a réglée part avec le lead (jointe à la transaction HubSpot).
+      let visuel: string | undefined;
+      try {
+        visuel = capture.current?.();
+      } catch {
+        visuel = undefined;
+      }
+      const res = await fetch("/api/lead", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contact, fiche, visuel }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.erreur ?? "Formulaire invalide");
       setEstimation(data.estimation as Estimation);
       if (!data.hubspot?.ok) console.warn("Lead non transmis :", data.hubspot?.raison);
+      setLead(data.hubspot?.ok ? { dealId: data.hubspot.dealId, contactId: data.hubspot.contactId } : null);
+      setRappel("non");
       setEtape("estimation");
+      suivre("estimation_affichee", { famille: fiche.famille, hubspot: Boolean(data.hubspot?.ok) });
     } catch (err) {
       setErreur(err instanceof Error ? err.message : "Une erreur est survenue.");
     } finally {
@@ -119,9 +134,31 @@ export default function Simulateur() {
     }
   }
 
+  async function demanderRappel() {
+    if (!fiche) return;
+    setRappel("envoi");
+    try {
+      await fetch("/api/rappel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dealId: lead?.dealId, contactId: lead?.contactId, prenom: contact.prenom, telephone: contact.telephone, famille: fiche.famille, creneau }),
+      });
+    } catch (err) {
+      console.warn("Demande de rappel non transmise :", err);
+    }
+    // Quoi qu'il arrive côté serveur, le client a fait sa demande : on la confirme.
+    setRappel("fait");
+    suivre("rappel_demande", { famille: fiche.famille, creneau });
+  }
+
   const onSceneReady = useCallback((fn: () => string) => {
     capture.current = fn;
   }, []);
+
+  // Suivi d'usage anonyme : à quelle étape les visiteurs s'arrêtent.
+  useEffect(() => {
+    suivre(`etape_${etape}`, famille ? { famille } : undefined);
+  }, [etape, famille]);
 
   /* ---------------------------------------------------------- rendu */
   return (
@@ -194,6 +231,7 @@ export default function Simulateur() {
                 ))}
                 {reponse.questions.length === 0 && <p className="text-stone-600">Je n’ai pas tout compris. Précisez votre projet ci-dessous.</p>}
               </div>
+              {reponse.questions.some((q) => /M$/.test(q.champ)) && <GuideMesure famille={reponse.famille ?? famille} />}
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <button type="button" disabled={chargement} onClick={repondreQuestions} className="rounded-full bg-[#8a5a2b] px-6 py-3 font-medium text-white hover:bg-[#75491f] disabled:opacity-40">
                   {chargement ? "Un instant…" : "Continuer"}
@@ -283,13 +321,36 @@ export default function Simulateur() {
                   {estimation.minimumApplique && <Ligne libelle="Minimum de commande appliqué" detail="" montant={estimation.prixCalcule} />}
                 </ul>
                 {estimation.optionsNonChiffrees.length > 0 && <p className="mt-3 text-xs text-stone-500">À chiffrer lors de la visite : {estimation.optionsNonChiffrees.join(", ")}.</p>}
-                                <div className="mt-6 space-y-2">
-                  {rappel ? (
-                    <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">Merci, nous vous rappelons sous 24 h ouvrées.</div>
+                <div className="mt-6 space-y-3">
+                  {rappel === "fait" ? (
+                    <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                      Merci {contact.prenom}, nous vous rappelons au {contact.telephone} dès le prochain jour ouvré{creneau === "matin" ? ", le matin" : creneau === "apres_midi" ? ", l’après-midi" : ""}.
+                    </div>
                   ) : (
-                    <button type="button" onClick={() => setRappel(true)} className="w-full rounded-full bg-[#8a5a2b] px-6 py-3 font-medium text-white hover:bg-[#75491f]">
-                      Être rappelé
-                    </button>
+                    <div className="rounded-2xl border border-stone-200 bg-[#faf8f5] p-4">
+                      <div className="text-sm font-medium text-stone-900">Quand préférez-vous être rappelé ?</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {(
+                          [
+                            ["matin", "Le matin"],
+                            ["apres_midi", "L’après-midi"],
+                            ["indifferent", "Peu importe"],
+                          ] as [Creneau, string][]
+                        ).map(([v, l]) => (
+                          <button
+                            key={v}
+                            type="button"
+                            onClick={() => setCreneau(v)}
+                            className={`rounded-full border px-3 py-1.5 text-sm transition ${creneau === v ? "border-[#8a5a2b] bg-[#8a5a2b] text-white" : "border-stone-300 bg-white text-stone-700 hover:border-stone-500"}`}
+                          >
+                            {l}
+                          </button>
+                        ))}
+                      </div>
+                      <button type="button" disabled={rappel === "envoi"} onClick={demanderRappel} className="mt-3 w-full rounded-full bg-[#8a5a2b] px-6 py-3 font-medium text-white hover:bg-[#75491f] disabled:opacity-40">
+                        {rappel === "envoi" ? "Envoi…" : "Être rappelé"}
+                      </button>
+                    </div>
                   )}
                   <button type="button" onClick={() => setEtape("configurateur")} className="w-full rounded-full border border-stone-300 px-6 py-3 text-sm font-medium text-stone-700 hover:border-stone-500">
                     Modifier mon projet
@@ -301,7 +362,12 @@ export default function Simulateur() {
         </section>
       )}
 
-      <footer className="mt-8 text-center text-xs text-stone-400">Estimation indicative calculée à partir de votre description, sans engagement. Le devis définitif suit la visite technique.</footer>
+      <footer className="mt-8 text-center text-xs text-stone-400">
+        Estimation indicative calculée à partir de votre description, sans engagement. Le devis définitif suit la visite technique.{" "}
+        <a href="/mentions-legales" className="underline hover:text-stone-600">
+          Mentions légales et données personnelles
+        </a>
+      </footer>
     </main>
   );
 }

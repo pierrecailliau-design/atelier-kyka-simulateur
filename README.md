@@ -9,17 +9,17 @@ Site où un client décrit son projet de menuiserie (dressing, placard, cuisine,
 - [x] Moteur de prix déterministe + 15 tests (`src/lib/prix`)
 - [x] Écran 1-2 : prompt, exemples, questions ; extraction de la fiche par Claude (`/api/fiche`, outil structuré) avec repli heuristique sans clé IA (`src/lib/ia`)
 - [x] Écran 3 : 3D paramétrique React Three Fiber pour les 4 familles + curseurs (`src/components/Scene3D.tsx`, `Controles.tsx`)
-- [x] Écran 4 : formulaire contact → `/api/lead` → HubSpot (contact + transaction, pipeline « Simulateur Atelier Kyka »)
-- [x] Écran 5 : estimation détaillée, « Être rappelé », « Modifier mon projet »
-- [ ] Capture PNG du visuel jointe à la transaction HubSpot (la capture existe côté client, l'envoi reste à brancher)
-- [ ] E-mail de récapitulatif au client (workflow HubSpot)
-- [ ] Analytics par écran, Cloudflare Turnstile, mentions légales
+- [x] Écran 4 : formulaire contact → `/api/lead` → HubSpot (contact + transaction, pipeline « Simulateur Atelier Kyka »), visuel 3D (JPEG ≈ 30-100 Ko) joint à la transaction en note
+- [x] Écran 5 : estimation détaillée, « Être rappelé » avec créneau → `/api/rappel` → tâche d'appel HubSpot (échéance prochain jour ouvré), « Modifier mon projet »
+- [x] Guide « Comment mesurer ? » sur l'écran des questions, page `/mentions-legales` (réserves entre crochets à compléter), Vercel Analytics (un événement par étape), limite de débit par IP sur les routes API
+- [ ] E-mail de récapitulatif au client (workflow HubSpot, déclenché à la création de la transaction)
+- [ ] Cloudflare Turnstile si les robots passent la limite de débit
 
 ## Lancer
 
 ```bash
 npm install
-npm test          # moteur de prix
+npm test          # moteur de prix, HubSpot (simulé), limite de débit — 25 tests
 npm run dev       # http://localhost:3000
 ```
 
@@ -29,9 +29,12 @@ Copier `.env.example` en `.env.local` et remplir les clés :
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Écran 2 : Claude lit le texte du client | mode heuristique (mots-clés + dimensions), questions pour le reste |
 | `GRILLE_SHEET_ID` + `GOOGLE_API_KEY` | Lecture du Google Sheet des tarifs (partagé en lecture par lien) | grille de test embarquée |
-| `HUBSPOT_PRIVATE_APP_TOKEN` | Écran 4 : création contact + transaction | lead non transmis (log serveur), estimation affichée quand même |
+| `HUBSPOT_PRIVATE_APP_TOKEN` | Écrans 4-5 : contact, transaction, visuel joint, tâche de rappel | lead non transmis (log serveur), estimation affichée quand même |
+| `HUBSPOT_OWNER_ID` | Qui reçoit les tâches de rappel (id utilisateur HubSpot) | tâche créée sans responsable |
 
-Déploiement : Vercel, projet `simulateur-atelier-kyka` (équipe Pierre - Kyka Group). Les variables ci-dessus se renseignent dans Vercel → Settings → Environment Variables.
+Scopes du jeton HubSpot (application privée) : `crm.objects.contacts.read`, `crm.objects.contacts.write`, `crm.objects.deals.write`, `files`.
+
+Déploiement : Vercel, projet `simulateur-atelier-kyka` (équipe Pierre - Kyka Group), déploiement automatique à chaque push sur `main`. Les variables ci-dessus se renseignent dans Vercel → Settings → Environment Variables. Activer Web Analytics dans l'onglet Analytics du projet Vercel pour voir les événements `etape_*`, `estimation_affichee`, `rappel_demande`.
 
 ## Principe
 

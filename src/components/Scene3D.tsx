@@ -366,12 +366,24 @@ function Camera({ fiche }: { fiche: FicheProjet }) {
   return <OrbitControls target={[0, cibleY, 0]} enablePan={false} minDistance={1.2} maxDistance={14} maxPolarAngle={Math.PI / 2 - 0.02} />;
 }
 
+/** Capture de la vue courante, réduite à 1 200 px de large en JPEG (≈ 100 Ko) pour la joindre au lead HubSpot. */
 function Capture({ onReady }: { onReady?: (capture: () => string) => void }) {
   const { gl, scene, camera } = useThree();
   useEffect(() => {
     onReady?.(() => {
       gl.render(scene, camera);
-      return gl.domElement.toDataURL("image/png");
+      const source = gl.domElement;
+      const largeur = Math.min(1200, source.width);
+      const hauteur = Math.round((source.height * largeur) / source.width);
+      const cible = document.createElement("canvas");
+      cible.width = largeur;
+      cible.height = hauteur;
+      const ctx = cible.getContext("2d");
+      if (!ctx) return source.toDataURL("image/jpeg", 0.85);
+      ctx.fillStyle = "#f7f4ef";
+      ctx.fillRect(0, 0, largeur, hauteur);
+      ctx.drawImage(source, 0, 0, largeur, hauteur);
+      return cible.toDataURL("image/jpeg", 0.85);
     });
   }, [gl, scene, camera, onReady]);
   return null;

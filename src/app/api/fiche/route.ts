@@ -2,6 +2,7 @@ import { z } from "zod";
 import { extraireFiche, iaDisponible, valider } from "@/lib/ia/extraire";
 import { extraireHeuristique } from "@/lib/ia/fallback";
 import type { Famille } from "@/lib/fiche/schema";
+import { adresseIp, autoriser, reponseTropDAppels } from "@/lib/limite";
 
 const Corps = z.union([
   // Texte libre du client (premier message, ou relance en texte) → IA ou heuristique
@@ -23,6 +24,9 @@ export async function POST(req: Request) {
 
   const { tours, famille } = corps.data;
   const dernier = [...tours].reverse().find((t) => t.role === "user")?.content ?? "";
+
+  // 30 lectures IA par IP et par 10 minutes : largement assez pour un vrai client, pas pour un robot.
+  if (!autoriser(`fiche:${adresseIp(req)}`, 30, 600)) return reponseTropDAppels();
 
   if (iaDisponible()) {
     try {
