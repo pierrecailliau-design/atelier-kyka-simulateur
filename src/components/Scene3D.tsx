@@ -528,8 +528,8 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
   const facades = useMemo(() => {
     const elements: React.ReactNode[] = [];
     const zPorte = P / 2 + E / 2 + 0.002;
-    const hPorte = H - plinthe - E;
-    const yPorte = plinthe + hPorte / 2;
+    const hPorte = H - plinthe - E - (portes === "coulissant" ? 0.012 : 0.004);
+    const yPorte = plinthe + 0.002 + hPorte / 2;
     if (portes === "battant") {
       for (let i = 0; i < n; i++) {
         const cote: 1 | -1 = i % 2 === 0 ? 1 : -1;
@@ -542,7 +542,8 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
       const pas = (W - 2 * E) / np;
       const wp = pas + 0.03;
       for (let i = 0; i < np; i++) {
-        const x = -W / 2 + E + pas * (i + 0.5);
+        // les panneaux extérieurs sont rentrés de 1,5 cm pour rester entre les joues (ils se recouvrent de 3 cm)
+        const x = -W / 2 + E + pas * (i + 0.5) + (i === 0 ? 0.015 : i === np - 1 ? -0.015 : 0);
         const z = zPorte + (i % 2 === 0 ? E + 0.008 : 0);
         // Sous une pente, les panneaux ne peuvent glisser que vers le côté haut ; celui du bout haut est fixe.
         const course = pente.active ? (i === 0 ? 0 : -pas * 0.94) : (i < np - 1 ? 1 : -1) * pas * 0.94;
@@ -555,9 +556,8 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
         const longueur = Math.hypot(W, dh);
         elements.push(<Panneau key="railh" position={[0, (H + pente.hMin) / 2 - E - 0.006, zPorte + E / 2 + 0.004]} rotation={[0, 0, Math.atan2(dh, W)]} taille={[longueur - 0.02, 0.006, 2 * E + 0.012]} couleur="#4a4a4e" metal={0.7} rugosite={0.3} arrondi={0.001} />);
       } else {
-        // bandeau haut dans la finition du meuble, rail discret dessous ; rail bas au sol
-        elements.push(<Panneau key="bandeau" position={[0, H - 0.03, zPorte + E / 2 + 0.004]} taille={[W, 0.06, 2 * E + 0.016]} {...finition} arrondi={0.003} />);
-        elements.push(<Panneau key="railh" position={[0, H - 0.062, zPorte + E / 2 + 0.004]} taille={[W - 0.01, 0.006, 2 * E + 0.012]} couleur="#4a4a4e" metal={0.7} rugosite={0.3} arrondi={0.001} />);
+        // rail haut sous le dessus (qui avance jusqu'au nu des portes), rail bas au sol
+        elements.push(<Panneau key="railh" position={[0, H - E - 0.004, zPorte + E / 2 + 0.004]} taille={[W - 2 * E, 0.008, 2 * E + 0.012]} couleur="#4a4a4e" metal={0.7} rugosite={0.3} arrondi={0.001} />);
       }
       elements.push(<Panneau key="railb" position={[0, plinthe + 0.004, zPorte + E / 2 + 0.004]} taille={[W, 0.008, 2 * E + 0.016]} couleur="#4a4a4e" metal={0.7} rugosite={0.3} arrondi={0.002} />);
     } else if (portes === "pliant") {
@@ -572,18 +572,23 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [portes, n, sw, W, H, P, gamme, miroirs, pente]);
 
+  // Les côtés et le dessus avancent jusqu'au nu des portes (et des rails pour un coulissant) :
+  // rien ne dépasse du meuble vu de côté, les portes sont encastrées entre les joues.
+  const avancee = portes === "ouvert" ? 0 : portes === "coulissant" ? 2 * E + 0.03 : E + 0.008;
+  const profCaisson = P + avancee;
+  const zCaisson = avancee / 2;
   // dessus : plat, ou en pente (panneau incliné de la hauteur pleine à gauche jusqu'à hMin à droite)
   const dessus = pente.active ? (
-    <Panneau position={[0, (H + pente.hMin) / 2 - E / 2, 0]} rotation={[0, 0, Math.atan2(pente.hMin - H, W)]} taille={[Math.hypot(W, H - pente.hMin), E, P]} {...finition} />
+    <Panneau position={[0, (H + pente.hMin) / 2 - E / 2, zCaisson]} rotation={[0, 0, Math.atan2(pente.hMin - H, W)]} taille={[Math.hypot(W, H - pente.hMin), E, profCaisson]} {...finition} />
   ) : (
-    <Panneau position={[0, H - E / 2, 0]} taille={[W, E, P]} {...finition} />
+    <Panneau position={[0, H - E / 2, zCaisson]} taille={[W, E, profCaisson]} {...finition} />
   );
 
   return (
     <group>
       {/* caisson */}
-      <Panneau position={[-W / 2 + E / 2, H / 2, 0]} taille={[E, H, P]} {...finition} />
-      <Panneau position={[W / 2 - E / 2, pente.hMin / 2, 0]} taille={[E, pente.hMin, P]} {...finition} />
+      <Panneau position={[-W / 2 + E / 2, H / 2, zCaisson]} taille={[E, H, profCaisson]} {...finition} />
+      <Panneau position={[W / 2 - E / 2, pente.hMin / 2, zCaisson]} taille={[E, pente.hMin, profCaisson]} {...finition} />
       {dessus}
       <Panneau position={[0, plinthe + E / 2, 0]} taille={[W - 2 * E, E, P]} {...dedans} />
       <Panneau position={[0, plinthe / 2, -0.03]} taille={[W - 2 * E, plinthe, P - 0.06]} couleur="#2e2b29" rugosite={0.6} arrondi={0.002} />
