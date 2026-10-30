@@ -47,10 +47,17 @@ const Commun = {
   defautsAppliques: z.array(z.string()).default([]),
 };
 
+/** Style de façade : lisse (moderne) ou à cadre (type shaker, plus classique). Sans effet sur le prix. */
+export const FacadeStyle = z.enum(["lisse", "cadre"]);
+/** Intérieur des caissons : mélaminé blanc (standard) ou assorti aux façades. Sans effet sur le prix. */
+export const Interieur = z.enum(["blanc", "assorti"]);
+
 /** Champs communs aux meubles (dressing, placard, cuisine). */
 const Meuble = {
   finition: Finition.optional(),
   poignees: Poignees.default("barre_noire"),
+  facadeStyle: FacadeStyle.default("lisse"),
+  interieur: Interieur.default("assorti"),
 };
 
 export const FicheDressing = z.object({
@@ -100,7 +107,11 @@ export const FicheCuisine = z.object({
   tiroirs: z.number().int().min(0).max(20).default(0),
   /** Crédence entre plan et meubles hauts : assortie au plan, blanche, ou carreaux. Sans effet sur le prix. */
   credence: z.enum(["assortie", "blanche", "carreaux"]).default("assortie"),
+  /** Hauteur du plan de travail fini, en mètres (standard 0,90 ; adaptée à la taille des utilisateurs). */
+  hauteurPlanM: z.number().min(0.82).max(0.98).default(0.9),
   ...Meuble,
+  // en cuisine l'intérieur standard est blanc (caissons mélaminés), les façades portent la finition
+  interieur: Interieur.default("blanc"),
   ...Commun,
 });
 
@@ -138,6 +149,8 @@ export type Famille = FicheProjet["famille"];
 export type Gamme = z.infer<typeof Gamme>;
 export type Finition = z.infer<typeof Finition>;
 export type Poignees = z.infer<typeof Poignees>;
+export type FacadeStyle = z.infer<typeof FacadeStyle>;
+export type Interieur = z.infer<typeof Interieur>;
 
 /**
  * Met la fiche en cohérence après saisie : une teinte de fenêtre autre que blanc vaut « couleur hors blanc »

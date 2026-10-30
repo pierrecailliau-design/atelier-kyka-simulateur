@@ -46,9 +46,9 @@ function dimensions(t: string): { ordre: number[]; nommees: Partial<Record<"larg
   // 2,40 m / 240 cm / 2.4 metres
   for (const m of t.matchAll(/(\d+(?:[.,]\d+)?)\s*(cm|mm|m|metres?)(?![a-z])/g)) ajouter(m.index, enMetres(m[1], m[2].startsWith("m") && m[2] !== "mm" ? "m" : m[2]));
   // 2,40 x 2,50 / 120 par 140 (sans unité)
-  for (const m of t.matchAll(/(\d+(?:[.,]\d+)?)\s*(?:x|×|\*|par|sur)\s*(\d+(?:[.,]\d+)?)/g)) {
-    ajouter(m.index, enMetres(m[1]));
-    ajouter(m.index + m[0].length - m[2].length, enMetres(m[2]));
+  for (const m of t.matchAll(/(\d+(?:[.,]\d+)?)\s*(cm|m)?\s*(?:x|×|\*|par|sur)\s*(\d+(?:[.,]\d+)?)\s*(cm|m)?(?![a-z\d])/g)) {
+    ajouter(m.index, enMetres(m[1], m[2] ?? m[4]));
+    ajouter(m.index + m[0].lastIndexOf(m[3]), enMetres(m[3], m[4] ?? m[2]));
   }
   // dimensions nommées : « 40 de profondeur », « 130 de haut », « 2m de large »
   const nommees: Partial<Record<"largeur" | "hauteur" | "profondeur", number>> = {};
@@ -86,6 +86,9 @@ export function extraireHeuristique(texte: string, familleChoisie?: Famille): Re
   // finition nommée (comprise dans la gamme) ; la validation retire une finition qui ne colle pas à la gamme
   const finition = /noyer/.test(t) ? "noyer" : /chene fume|fume/.test(t) ? "chene_fume" : /frene/.test(t) ? "frene" : /chene/.test(t) ? (g === "essentiel" ? "decor_chene" : "chene_naturel") : /terracotta|brique/.test(t) ? "terracotta" : /sauge|vert/.test(t) ? "sauge" : /bleu/.test(t) ? "bleu_nuit" : /anthracite|gris fonce|noir/.test(t) ? "anthracite" : /gris/.test(t) ? "gris_clair" : /lin|beige|sable/.test(t) ? "lin" : undefined;
   if (finition && famille !== "fenetre") brut.finition = finition;
+  if (/shaker|a cadre|avec cadre|moulur|classique/.test(t) && famille !== "fenetre") brut.facadeStyle = "cadre";
+  if (/interieur blanc/.test(t)) brut.interieur = "blanc";
+  else if (/interieur assorti|interieur de la meme/.test(t)) brut.interieur = "assorti";
   if (/sans poignee|push|pression/.test(t)) brut.poignees = "sans";
   else if (/laiton|dore/.test(t)) brut.poignees = "barre_laiton";
   else if (/inox|chrome/.test(t)) brut.poignees = "barre_inox";

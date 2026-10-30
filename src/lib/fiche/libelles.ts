@@ -79,6 +79,9 @@ export const LIBELLE_QUESTION: Record<string, string> = {
   amenagement: "Plutôt penderie, étagères, ou les deux ?",
   credence: "Quelle crédence ?",
   teinte: "Quelle teinte pour les profils ?",
+  facadeStyle: "Façades lisses ou à cadre ?",
+  interieur: "Intérieur des caissons blanc ou assorti ?",
+  hauteurPlanM: "Quelle hauteur de plan de travail, en mètres ?",
 };
 
 export const OPTIONS_CHAMP: Record<string, Question["options"]> = {
@@ -145,6 +148,14 @@ export const OPTIONS_CHAMP: Record<string, Question["options"]> = {
     { valeur: "carreaux", libelle: "Carreaux" },
   ],
   teinte: (Object.keys(TEINTES_FENETRE) as (keyof typeof TEINTES_FENETRE)[]).map((t) => ({ valeur: t, libelle: TEINTES_FENETRE[t].libelle })),
+  facadeStyle: [
+    { valeur: "lisse", libelle: "Lisses" },
+    { valeur: "cadre", libelle: "À cadre (shaker)" },
+  ],
+  interieur: [
+    { valeur: "blanc", libelle: "Blanc" },
+    { valeur: "assorti", libelle: "Assorti aux façades" },
+  ],
 };
 
 /** Options de finition restreintes à une gamme, pour les curseurs. */
@@ -186,6 +197,9 @@ export const LIBELLE_CHAMP: Record<string, string> = {
   couleurHorsBlanc: "couleur hors blanc",
   petitsBois: "petits-bois",
   piece: "pièce",
+  facadeStyle: "façades",
+  interieur: "intérieur des caissons",
+  hauteurPlanM: "hauteur du plan",
 };
 export const libelleChamp = (c: string) => LIBELLE_CHAMP[c] ?? c;
 

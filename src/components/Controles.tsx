@@ -151,9 +151,11 @@ export default function Controles({ fiche, onChange }: Props) {
           <Choix label="Gamme" valeur={fiche.gamme} options={opt("gamme")} onChange={(v) => maj({ gamme: v, finition: undefined })} />
           <Nuancier label="Finition" valeur={finitionEffective(fiche.gamme, fiche.finition)} options={optionsFinition(fiche.gamme)} onChange={(v) => maj({ finition: v })} />
           <Choix label="Façade" valeur={fiche.facade} options={opt("facade")} onChange={(v) => maj({ facade: v })} />
+          {fiche.facade !== "ouvert" && <Choix label="Style des portes" valeur={fiche.facadeStyle} options={opt("facadeStyle")} onChange={(v) => maj({ facadeStyle: v })} />}
           {fiche.facade !== "ouvert" && <Choix label="Poignées" valeur={fiche.poignees} options={opt("poignees")} onChange={(v) => maj({ poignees: v })} />}
           <Titre>Intérieur</Titre>
           <Choix label="Aménagement" valeur={fiche.amenagement} options={opt("amenagement")} onChange={(v) => maj({ amenagement: v })} />
+          <Choix label="Intérieur des caissons" valeur={fiche.interieur} options={opt("interieur")} onChange={(v) => maj({ interieur: v })} />
           <Nombre label="Tiroirs" valeur={fiche.tiroirs} onChange={(v) => maj({ tiroirs: v })} />
           {fiche.facade !== "ouvert" && <Nombre label="Portes avec miroir" valeur={fiche.miroirPortes} max={8} onChange={(v) => maj({ miroirPortes: v })} />}
           <Bascule label="Éclairage LED" valeur={fiche.eclairageLed} onChange={(v) => maj({ eclairageLed: v })} />
@@ -173,9 +175,11 @@ export default function Controles({ fiche, onChange }: Props) {
           <Choix label="Gamme" valeur={fiche.gamme} options={opt("gamme")} onChange={(v) => maj({ gamme: v, finition: undefined })} />
           <Nuancier label="Finition" valeur={finitionEffective(fiche.gamme, fiche.finition)} options={optionsFinition(fiche.gamme)} onChange={(v) => maj({ finition: v })} />
           <Choix label="Portes" valeur={fiche.portes} options={opt("portes")} onChange={(v) => maj({ portes: v })} />
+          <Choix label="Style des portes" valeur={fiche.facadeStyle} options={opt("facadeStyle")} onChange={(v) => maj({ facadeStyle: v })} />
           <Choix label="Poignées" valeur={fiche.poignees} options={opt("poignees")} onChange={(v) => maj({ poignees: v })} />
           <Titre>Intérieur</Titre>
           <Choix label="Aménagement" valeur={fiche.amenagement} options={opt("amenagement")} onChange={(v) => maj({ amenagement: v })} />
+          <Choix label="Intérieur des caissons" valeur={fiche.interieur} options={opt("interieur")} onChange={(v) => maj({ interieur: v })} />
           <Nombre label="Tiroirs" valeur={fiche.tiroirs} onChange={(v) => maj({ tiroirs: v })} />
           <Precisions valeur={fiche.precisions} onChange={(v) => maj({ precisions: v || undefined })} />
         </div>
@@ -186,13 +190,16 @@ export default function Controles({ fiche, onChange }: Props) {
           <Titre>Dimensions</Titre>
           <Curseur label="Meubles bas" valeur={fiche.longueurBasM} min={1} max={10} onChange={(v) => maj({ longueurBasM: v })} />
           <Curseur label="Meubles hauts" valeur={fiche.longueurHautM} min={0} max={10} onChange={(v) => maj({ longueurHautM: v })} />
+          <Curseur label="Hauteur du plan de travail" valeur={fiche.hauteurPlanM} min={0.82} max={0.98} onChange={(v) => maj({ hauteurPlanM: v })} />
           <Choix label="Implantation" valeur={fiche.implantation} options={opt("implantation")} onChange={(v) => maj({ implantation: v })} />
           <Titre>Style</Titre>
           <Choix label="Gamme des façades" valeur={fiche.gamme} options={opt("gamme")} onChange={(v) => maj({ gamme: v, finition: undefined })} />
           <Nuancier label="Finition des façades" valeur={finitionEffective(fiche.gamme, fiche.finition)} options={optionsFinition(fiche.gamme)} onChange={(v) => maj({ finition: v })} />
+          <Choix label="Style des façades" valeur={fiche.facadeStyle} options={opt("facadeStyle")} onChange={(v) => maj({ facadeStyle: v })} />
           <Choix label="Plan de travail" valeur={fiche.planTravail} options={opt("planTravail")} onChange={(v) => maj({ planTravail: v })} />
           <Choix label="Crédence" valeur={fiche.credence} options={opt("credence")} onChange={(v) => maj({ credence: v })} />
           <Choix label="Poignées" valeur={fiche.poignees} options={opt("poignees")} onChange={(v) => maj({ poignees: v })} />
+          <Choix label="Intérieur des caissons" valeur={fiche.interieur} options={opt("interieur")} onChange={(v) => maj({ interieur: v })} />
           <Titre>Rangements</Titre>
           <Nombre label="Colonnes" valeur={fiche.colonnes} max={6} onChange={(v) => maj({ colonnes: v })} />
           <Nombre label="Meubles à tiroirs" valeur={fiche.tiroirs} max={10} onChange={(v) => maj({ tiroirs: v })} />

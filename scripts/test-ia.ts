@@ -5,7 +5,7 @@
  *   npm run test:ia -- --heuristique   # force le mode sans IA pour comparer
  *
  * Imprime un tableau et un score, et écrit scripts/resultats-ia.md (à coller dans la conversation pour analyse).
- * Critère de réussite retenu au cadrage : 85 % de phrases justes (28 sur 33), sans question inutile.
+ * Critère de réussite retenu au cadrage : 85 % de phrases justes (29 sur 34), sans question inutile.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -71,6 +71,7 @@ const CAS: { phrase: string; attendu: Attendu }[] = [
   { phrase: "Dressing 2,40 x 2,50, laqué vert sauge, poignées laiton, portes battantes", attendu: { statut: "fiche", famille: "dressing", champs: { largeurM: 2.4, hauteurM: 2.5, gamme: "confort", finition: "sauge", poignees: "barre_laiton", facade: "battant" } } },
   { phrase: "cuisine en ligne 3 m de bas 2 m de hauts, façades noyer, plan quartz, crédence en carreaux métro, sans poignées", attendu: { statut: "fiche", famille: "cuisine", champs: { implantation: "lineaire", longueurBasM: 3, longueurHautM: 2, gamme: "premium", finition: "noyer", planTravail: "quartz", credence: "carreaux", poignees: "sans" } } },
   { phrase: "fenêtre alu anthracite 1,20 x 1,40 oscillo-battante deux vantaux avec petits bois", attendu: { statut: "fiche", famille: "fenetre", champs: { materiau: "aluminium", teinte: "anthracite", couleurHorsBlanc: true, ouverture: "oscillo_battant", vantaux: 2, petitsBois: true, largeurM: 1.2, hauteurM: 1.4 } } },
+  { phrase: "Dressing 2 m x 2,50, portes battantes à cadre style shaker laquées blanches, intérieur blanc, poignées inox", attendu: { statut: "fiche", famille: "dressing", champs: { largeurM: 2, hauteurM: 2.5, facade: "battant", facadeStyle: "cadre", interieur: "blanc", poignees: "barre_inox", gamme: "confort" } } },
   // --- hors sujet
   { phrase: "Pouvez-vous refaire ma salle de bain complète avec carrelage et plomberie ?", attendu: { statut: "hors_sujet" } },
   { phrase: "Combien coûte une table en chêne de 2 m ?", attendu: { statut: "hors_sujet" } },

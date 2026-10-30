@@ -10,7 +10,7 @@ import { ContactShadows, Environment, Lightformer, OrbitControls, RoundedBox, So
 import { easing } from "maath";
 import * as THREE from "three";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { finitionEffective, type FicheCuisine, type FicheDressing, type FicheFenetre, type FichePlacard, type FicheProjet, type Finition as CodeFinition, type Gamme, type Poignees } from "@/lib/fiche/schema";
+import { finitionEffective, type FacadeStyle, type FicheCuisine, type FicheDressing, type FicheFenetre, type FichePlacard, type FicheProjet, type Finition as CodeFinition, type Gamme, type Interieur, type Poignees } from "@/lib/fiche/schema";
 import { FINITIONS, POIGNEES, TEINTES_FENETRE } from "@/lib/fiche/libelles";
 const E = 0.019; // épaisseur de panneau
 const ACCENT = "#8a5a2b";
@@ -21,8 +21,8 @@ const OuvertureContext = createContext<Ouverture>({ estOuvert: () => false, basc
 const SurvolContext = createContext(false);
 
 /** Style choisi par le client pour les meubles : finition effective et poignées. Lu par Matiere et Poignee. */
-type Style = { finition: CodeFinition; poignees: Poignees };
-const StyleContext = createContext<Style>({ finition: "lin", poignees: "barre_noire" });
+type Style = { finition: CodeFinition; poignees: Poignees; facadeStyle: FacadeStyle; interieur: Interieur };
+const StyleContext = createContext<Style>({ finition: "lin", poignees: "barre_noire", facadeStyle: "lisse", interieur: "assorti" });
 
 /**
  * Élément mobile (porte, tiroir, vantail). `appliquer(t)` reçoit l'avancement 0 (fermé) → 1 (ouvert),
@@ -191,14 +191,15 @@ function textureCiel() {
 
 /* ------------------------------------------------------------------ matières */
 /** `gamme` seule → finition du style courant (contexte) ; `finition` → une finition imposée (plan de travail en bois, par ex.). */
-type Finition = { gamme?: Gamme; finition?: CodeFinition; couleur?: string; rugosite?: number; metal?: number; miroir?: boolean; carte?: THREE.Texture };
+type Finition = { gamme?: Gamme; finition?: CodeFinition; couleur?: string; rugosite?: number; metal?: number; miroir?: boolean; carte?: THREE.Texture; /** panneau intérieur d'un caisson : blanc si le client a choisi un intérieur blanc */ interne?: boolean };
 
-function Matiere({ gamme, finition, couleur, rugosite, metal, miroir, carte }: Finition) {
+function Matiere({ gamme, finition, couleur, rugosite, metal, miroir, carte, interne }: Finition) {
   const survol = useContext(SurvolContext);
   const style = useContext(StyleContext);
   const emissive = survol ? ACCENT : "#000000";
   const ei = survol ? 0.16 : 0;
   if (miroir) return <meshStandardMaterial color="#dfe7ec" roughness={0.06} metalness={0.85} envMapIntensity={1.4} emissive={emissive} emissiveIntensity={ei} />;
+  if (interne && style.interieur === "blanc") return <meshStandardMaterial color="#f3efe8" roughness={0.78} emissive={emissive} emissiveIntensity={ei} />;
   if (carte) return <meshStandardMaterial map={carte} color={couleur ?? "#ffffff"} roughness={rugosite ?? 0.5} emissive={emissive} emissiveIntensity={ei} />;
   const code = finition ?? (gamme ? finitionEffective(gamme, style.finition) : undefined);
   if (code) {
@@ -282,20 +283,41 @@ type Haut = { hGauche: number; hDroite: number };
 
 /** Vantail de porte : rectangle, ou trapèze si `haut` est donné. `x0` = bord gauche en local, `yBas` = bas de la porte. */
 function VantailPorte({ x0, largeur, yBas, hauteur, haut, finition }: { x0: number; largeur: number; yBas: number; hauteur: number; haut?: Haut; finition: Finition }) {
+  const style = useContext(StyleContext);
   if (haut) return <Trapeze x0={x0} largeur={largeur} hGauche={haut.hGauche} hDroite={haut.hDroite} position={[0, yBas, 0]} {...finition} />;
-  return <Panneau position={[x0 + largeur / 2, yBas + hauteur / 2, 0]} taille={[largeur, hauteur, E]} {...finition} />;
+  const cx = x0 + largeur / 2;
+  const cy = yBas + hauteur / 2;
+  const cadre = style.facadeStyle === "cadre" && !finition.miroir && largeur > 0.25 && hauteur > 0.3;
+  const m = Math.min(0.075, largeur * 0.18); // largeur des montants du cadre
+  const ep = 0.007;
+  return (
+    <group>
+      <Panneau position={[cx, cy, 0]} taille={[largeur, hauteur, E]} {...finition} />
+      {cadre && (
+        <>
+          {/* cadre type shaker : quatre montants en relief, le panneau central reste en retrait */}
+          <Panneau position={[x0 + m / 2, cy, E / 2 + ep / 2]} taille={[m, hauteur, ep]} {...finition} arrondi={0.002} />
+          <Panneau position={[x0 + largeur - m / 2, cy, E / 2 + ep / 2]} taille={[m, hauteur, ep]} {...finition} arrondi={0.002} />
+          <Panneau position={[cx, yBas + m / 2, E / 2 + ep / 2]} taille={[largeur - 2 * m, m, ep]} {...finition} arrondi={0.002} />
+          <Panneau position={[cx, yBas + hauteur - m / 2, E / 2 + ep / 2]} taille={[largeur - 2 * m, m, ep]} {...finition} arrondi={0.002} />
+        </>
+      )}
+    </group>
+  );
 }
 
 /** Porte battante : charnière à gauche (`cote` = 1) ou à droite (-1), ouvre vers le spectateur. */
-function Battante({ id, charniere, largeur, hauteur, y, z, cote, finition, angle = 1.6, poignee = true, haut }: { id: string; charniere: number; largeur: number; hauteur: number; y: number; z: number; cote: 1 | -1; finition: Finition; angle?: number; poignee?: boolean; haut?: Haut }) {
+function Battante({ id, charniere, largeur, hauteur, y, z, cote, finition, angle = 1.6, poignee = true, haut, poigneePos = "milieu" }: { id: string; charniere: number; largeur: number; hauteur: number; y: number; z: number; cote: 1 | -1; finition: Finition; angle?: number; poignee?: boolean; haut?: Haut; /** meuble bas : poignée en haut ; meuble haut : en bas */ poigneePos?: "haut" | "bas" | "milieu" }) {
   const g = useRef<THREE.Group>(null);
+  const style = useContext(StyleContext);
   const yBas = y - hauteur / 2;
-  const yPoignee = haut ? yBas + Math.min(haut.hGauche, haut.hDroite) * 0.5 : y;
+  const yPoignee = haut ? yBas + Math.min(haut.hGauche, haut.hDroite) * 0.5 : poigneePos === "haut" ? yBas + hauteur - 0.13 : poigneePos === "bas" ? yBas + 0.13 : y;
+  const zPoignee = E / 2 + (style.facadeStyle === "cadre" && !haut ? 0.007 : 0);
   return (
     <Mobile id={id} appliquer={(t) => g.current && (g.current.rotation.y = -cote * t * angle)}>
       <group ref={g} position={[charniere, 0, z]}>
         <VantailPorte x0={cote === 1 ? 0 : -largeur} largeur={largeur} yBas={yBas} hauteur={hauteur} haut={haut} finition={finition} />
-        {poignee && <Poignee position={[cote * (largeur - 0.06), yPoignee, E / 2]} />}
+        {poignee && <Poignee position={[cote * (largeur - 0.06), yPoignee, zPoignee]} />}
       </group>
     </Mobile>
   );
@@ -367,8 +389,8 @@ function Tiroir({ id, x, y, z, largeur, hauteur, profondeur, finition }: { id: s
   return (
     <Mobile id={id} appliquer={(t) => g.current && (g.current.position.z = z + t * course)}>
       <group ref={g} position={[x, y, z]}>
-        <Panneau position={[0, 0, 0]} taille={[largeur, hauteur, E]} {...finition} />
-        <Poignee position={[0, hauteur / 2 - 0.045, E / 2]} vertical={false} longueur={Math.min(0.3, largeur * 0.4)} />
+        <VantailPorte x0={-largeur / 2} largeur={largeur} yBas={-hauteur / 2} hauteur={hauteur} finition={finition} />
+        <Poignee position={[0, hauteur / 2 - 0.045, E / 2 + 0.007]} vertical={false} longueur={Math.min(0.3, largeur * 0.4)} />
         {/* caisson du tiroir, bois clair */}
         <Panneau position={[0, -hauteur / 2 + 0.012, -pi / 2 - E / 2]} taille={[largeur - 0.04, 0.008, pi]} couleur="#e9dcc6" rugosite={0.8} arrondi={0.002} />
         <Panneau position={[-(largeur - 0.04) / 2 + 0.006, -0.012, -pi / 2 - E / 2]} taille={[0.012, hauteur - 0.05, pi]} couleur="#e9dcc6" rugosite={0.8} arrondi={0.002} />
@@ -446,6 +468,7 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
   const sw = (W - 2 * E) / n;
   const plinthe = 0.08;
   const finition: Finition = { gamme };
+  const dedans: Finition = { gamme, interne: true };
   const finitionPorte = (i: number): Finition => (i < miroirs ? { miroir: true } : { gamme });
   /** Haut de porte (par rapport au bas de la porte) aux abscisses xa < xb, sous le dessus en pente. */
   const hautPorte = (xa: number, xb: number): Haut | undefined => (pente.active ? { hGauche: pente.hauteurEn(xa) - E - 0.008 - plinthe, hDroite: pente.hauteurEn(xb) - E - 0.008 - plinthe } : undefined);
@@ -460,11 +483,11 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
       const hSec = pente.hauteurEn(xb); // point le plus bas du dessus dans la section
       if (i > 0) {
         const hDiv = pente.hauteurEn(xa) - 2 * E;
-        elements.push(<Panneau key={`div${i}`} position={[xa, E + hDiv / 2, 0]} taille={[E, hDiv, P - E]} {...finition} />);
+        elements.push(<Panneau key={`div${i}`} position={[xa, E + hDiv / 2, 0]} taille={[E, hDiv, P - E]} {...dedans} />);
       }
       if (pente.active) {
         const hFond = pente.hauteurEn(xb) - 2 * E;
-        elements.push(<Panneau key={`fond${i}`} position={[cx, E + hFond / 2, -P / 2 + E / 2]} taille={[sw, hFond, E]} {...finition} />);
+        elements.push(<Panneau key={`fond${i}`} position={[cx, E + hFond / 2, -P / 2 + E / 2]} taille={[sw, hFond, E]} {...dedans} />);
       }
       const dansSection = Math.min(3, tiroirsRestants);
       const hautTiroirs = plinthe + E + dansSection * 0.19;
@@ -478,18 +501,18 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
             <meshStandardMaterial color="#9a9a9a" metalness={0.8} roughness={0.25} />
           </mesh>,
         );
-        if (!pente.active) elements.push(<Panneau key={`tab${i}`} position={[cx, H - 0.12, 0]} taille={[sw - E, E, P - 2 * E]} {...finition} />);
+        if (!pente.active) elements.push(<Panneau key={`tab${i}`} position={[cx, H - 0.12, 0]} taille={[sw - E, E, P - 2 * E]} {...dedans} />);
         elements.push(<Cintres key={`cintres${i}`} cx={cx} y={yTringle} largeur={sw - E} profondeur={P} />);
         if (hSec - 0.26 - 0.7 - hautTiroirs > 0.3) {
-          elements.push(<Panneau key={`tabbas${i}`} position={[cx, hautTiroirs + 0.02, 0]} taille={[sw - E, E, P - 2 * E]} {...finition} />);
+          elements.push(<Panneau key={`tabbas${i}`} position={[cx, hautTiroirs + 0.02, 0]} taille={[sw - E, E, P - 2 * E]} {...dedans} />);
         }
       } else {
-        if (dansSection > 0) elements.push(<Panneau key={`tabtir${i}`} position={[cx, hautTiroirs + 0.02, 0]} taille={[sw - E, E, P - 2 * E]} {...finition} />);
+        if (dansSection > 0) elements.push(<Panneau key={`tabtir${i}`} position={[cx, hautTiroirs + 0.02, 0]} taille={[sw - E, E, P - 2 * E]} {...dedans} />);
         const nb = Math.max(2, Math.round((hSec - hautTiroirs) / 0.36));
         const pas = (hSec - E - hautTiroirs) / nb;
         for (let k = 1; k < nb; k++) {
           const y = hautTiroirs + pas * k;
-          elements.push(<Panneau key={`etag${i}-${k}`} position={[cx, y, 0]} taille={[sw - E, E, P - 2 * E]} {...finition} />);
+          elements.push(<Panneau key={`etag${i}-${k}`} position={[cx, y, 0]} taille={[sw - E, E, P - 2 * E]} {...dedans} />);
           if (k % 2 === 1 && hSec - y > 0.2) elements.push(<PileLinge key={`pile${i}-${k}`} position={[cx - (k % 4 === 1 ? 0.05 : -0.05), y + E / 2, -0.02]} profondeur={P} />);
         }
       }
@@ -562,9 +585,9 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
       <Panneau position={[-W / 2 + E / 2, H / 2, 0]} taille={[E, H, P]} {...finition} />
       <Panneau position={[W / 2 - E / 2, pente.hMin / 2, 0]} taille={[E, pente.hMin, P]} {...finition} />
       {dessus}
-      <Panneau position={[0, plinthe + E / 2, 0]} taille={[W - 2 * E, E, P]} {...finition} />
+      <Panneau position={[0, plinthe + E / 2, 0]} taille={[W - 2 * E, E, P]} {...dedans} />
       <Panneau position={[0, plinthe / 2, -0.03]} taille={[W - 2 * E, plinthe, P - 0.06]} couleur="#2e2b29" rugosite={0.6} arrondi={0.002} />
-      {!pente.active && <Panneau position={[0, H / 2, -P / 2 + E / 2]} taille={[W - 2 * E, H - 2 * E, E]} {...finition} />}
+      {!pente.active && <Panneau position={[0, H / 2, -P / 2 + E / 2]} taille={[W - 2 * E, H - 2 * E, E]} {...dedans} />}
       {interieur}
       {facades}
       {led && !pente.active && (
@@ -581,6 +604,11 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
 }
 
 /* ------------------------------------------------------------------ cuisine */
+const PROF = 0.6; // profondeur des meubles bas
+const SOCLE = 0.1;
+const E_PLAN = 0.04;
+const INOX: Finition = { couleur: "#b9bcc0", metal: 0.9, rugosite: 0.28 };
+
 /** Matière de la crédence selon le choix du client et le plan de travail. */
 function matiereCredence(credence: FicheCuisine["credence"], plan: FicheCuisine["planTravail"]): Finition {
   if (credence === "carreaux") return { carte: textureCarreaux(), rugosite: 0.25 };
@@ -588,90 +616,218 @@ function matiereCredence(credence: FicheCuisine["credence"], plan: FicheCuisine[
   return plan === "quartz" ? { couleur: "#eceae5", rugosite: 0.3 } : plan === "bois" ? { finition: "chene_naturel" } : { couleur: "#e4dfd6", rugosite: 0.4 };
 }
 
-function RangeeCuisine({ prefixe, longueur, longueurHaut, gamme, plan, credence, tiroirs, evier = -1, plaque = -1 }: { prefixe: string; longueur: number; longueurHaut: number; gamme: Gamme; plan: FicheCuisine["planTravail"]; credence: FicheCuisine["credence"]; tiroirs: number; evier?: number; plaque?: number }) {
+const matierePlan = (plan: FicheCuisine["planTravail"]): Finition => (plan === "quartz" ? { couleur: "#f3f1ec", rugosite: 0.18 } : plan === "bois" ? { finition: "chene_naturel" } : { couleur: "#c9c4bb", rugosite: 0.55 });
+
+/**
+ * Caisson ouvert sur le devant : deux côtés, fond (bas), dos, et des étagères. L'intérieur suit le choix
+ * « intérieur des caissons ». Origine : coin bas gauche arrière du caisson au sol du caisson (y = 0).
+ */
+function Caisson({ x, y, largeur, hauteur, profondeur, etageres = [], gamme, children }: { x: number; y: number; largeur: number; hauteur: number; profondeur: number; etageres?: number[]; gamme: Gamme; children?: React.ReactNode }) {
+  const dedans: Finition = { gamme, interne: true };
+  const cz = 0; // caisson centré en z sur le groupe appelant
+  return (
+    <group position={[x, y, cz]}>
+      <Panneau position={[E / 2, hauteur / 2, 0]} taille={[E, hauteur, profondeur]} {...dedans} />
+      <Panneau position={[largeur - E / 2, hauteur / 2, 0]} taille={[E, hauteur, profondeur]} {...dedans} />
+      <Panneau position={[largeur / 2, E / 2, 0]} taille={[largeur - 2 * E, E, profondeur]} {...dedans} />
+      <Panneau position={[largeur / 2, hauteur - E / 2, 0]} taille={[largeur - 2 * E, E, profondeur]} {...dedans} />
+      <Panneau position={[largeur / 2, hauteur / 2, -profondeur / 2 + E / 2]} taille={[largeur - 2 * E, hauteur - 2 * E, E]} {...dedans} />
+      {etageres.map((h) => (
+        <Panneau key={h} position={[largeur / 2, h, 0]} taille={[largeur - 2 * E, E, profondeur - 2 * E]} {...dedans} />
+      ))}
+      {children}
+    </group>
+  );
+}
+
+/** Deux casseroles empilées et une pile d'assiettes : ce qu'on voit quand on ouvre un meuble bas. */
+function ContenuBas({ largeur, profondeur, etagere }: { largeur: number; profondeur: number; etagere: number }) {
+  const r = Math.min(0.11, largeur * 0.2);
+  return (
+    <group>
+      <mesh position={[largeur * 0.35, E + 0.06, -profondeur * 0.1]} castShadow>
+        <cylinderGeometry args={[r, r, 0.12, 24]} />
+        <meshStandardMaterial color="#9ea3a8" metalness={0.85} roughness={0.3} />
+      </mesh>
+      <mesh position={[largeur * 0.35, E + 0.12 + 0.045, -profondeur * 0.1]} castShadow>
+        <cylinderGeometry args={[r * 0.8, r * 0.8, 0.09, 24]} />
+        <meshStandardMaterial color="#c7cacf" metalness={0.85} roughness={0.3} />
+      </mesh>
+      <mesh position={[largeur * 0.68, etagere + E / 2 + 0.035, -profondeur * 0.05]} castShadow>
+        <cylinderGeometry args={[Math.min(0.13, largeur * 0.22), Math.min(0.13, largeur * 0.22), 0.07, 24]} />
+        <meshStandardMaterial color="#f2efe8" roughness={0.5} />
+      </mesh>
+    </group>
+  );
+}
+
+/** Verres et bols dans un meuble haut. */
+function ContenuHaut({ largeur, profondeur, etagere }: { largeur: number; profondeur: number; etagere: number }) {
+  const n = Math.max(2, Math.min(4, Math.floor(largeur / 0.12)));
+  return (
+    <group>
+      {Array.from({ length: n }, (_, k) => (
+        <mesh key={k} position={[(largeur * (k + 0.5)) / n, etagere + E / 2 + 0.05, -profondeur * 0.1]} castShadow>
+          <cylinderGeometry args={[0.032, 0.026, 0.1, 16]} />
+          <meshPhysicalMaterial color="#e8f0f4" transparent opacity={0.45} roughness={0.05} />
+        </mesh>
+      ))}
+      <mesh position={[largeur * 0.3, E + 0.03, -profondeur * 0.1]} castShadow>
+        <cylinderGeometry args={[0.07, 0.05, 0.06, 20]} />
+        <meshStandardMaterial color="#e3d9c8" roughness={0.6} />
+      </mesh>
+      <mesh position={[largeur * 0.68, E + 0.03, -profondeur * 0.1]} castShadow>
+        <cylinderGeometry args={[0.07, 0.05, 0.06, 20]} />
+        <meshStandardMaterial color="#aab5a4" roughness={0.6} />
+      </mesh>
+    </group>
+  );
+}
+
+/** Plan de travail percé pour la cuve : des morceaux autour du trou, pas de géométrie booléenne. */
+function PlanTravail({ longueur, y, plan, trou }: { longueur: number; y: number; plan: FicheCuisine["planTravail"]; trou?: { x: number; largeur: number; profondeur: number } }) {
+  const mat = matierePlan(plan);
+  const prof = PROF + 0.03;
+  const zc = 0.015;
+  const pieces: { x: number; w: number; z: number; d: number }[] = [];
+  if (!trou) pieces.push({ x: longueur / 2, w: longueur + 0.02, z: zc, d: prof });
+  else {
+    const xa = trou.x - trou.largeur / 2;
+    const xb = trou.x + trou.largeur / 2;
+    if (xa > 0) pieces.push({ x: xa / 2 - 0.01, w: xa + 0.02, z: zc, d: prof });
+    if (xb < longueur) pieces.push({ x: (xb + longueur) / 2 + 0.01, w: longueur - xb + 0.02, z: zc, d: prof });
+    // bandes avant et arrière du trou (la cuve est centrée en z = 0,02)
+    const bordAvantTrou = 0.02 + trou.profondeur / 2;
+    const bordAvantPlan = zc + prof / 2;
+    const bordArriereTrou = 0.02 - trou.profondeur / 2;
+    const bordArrierePlan = zc - prof / 2;
+    pieces.push({ x: trou.x, w: trou.largeur, z: (bordAvantTrou + bordAvantPlan) / 2, d: bordAvantPlan - bordAvantTrou });
+    pieces.push({ x: trou.x, w: trou.largeur, z: (bordArriereTrou + bordArrierePlan) / 2, d: bordArriereTrou - bordArrierePlan });
+  }
+  return (
+    <group>
+      {pieces.map((p, i) => (
+        <Panneau key={i} position={[p.x, y, p.z]} taille={[p.w, E_PLAN, p.d]} {...mat} arrondi={0.003} />
+      ))}
+    </group>
+  );
+}
+
+/** Cuve encastrée (bac inox ouvert) + robinet. */
+function Evier({ x, y, largeur, profondeur }: { x: number; y: number; largeur: number; profondeur: number }) {
+  const h = 0.18;
+  const ep = 0.006;
+  return (
+    <group position={[x, y, 0.02]}>
+      {/* bords de la cuve affleurants */}
+      <Panneau position={[0, -ep / 2, 0]} taille={[largeur + 0.02, ep, profondeur + 0.02]} {...INOX} arrondi={0.001} />
+      {/* bac : fond et quatre parois, vus depuis le dessus */}
+      <Panneau position={[0, -h + ep / 2, 0]} taille={[largeur, ep, profondeur]} {...INOX} arrondi={0.001} />
+      <Panneau position={[-largeur / 2 + ep / 2, -h / 2, 0]} taille={[ep, h, profondeur]} {...INOX} arrondi={0.001} />
+      <Panneau position={[largeur / 2 - ep / 2, -h / 2, 0]} taille={[ep, h, profondeur]} {...INOX} arrondi={0.001} />
+      <Panneau position={[0, -h / 2, -profondeur / 2 + ep / 2]} taille={[largeur, h, ep]} {...INOX} arrondi={0.001} />
+      <Panneau position={[0, -h / 2, profondeur / 2 - ep / 2]} taille={[largeur, h, ep]} {...INOX} arrondi={0.001} />
+      <mesh position={[0, -h + ep + 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[0.03, 20]} />
+        <meshStandardMaterial color="#5c6066" metalness={0.8} roughness={0.4} />
+      </mesh>
+      {/* robinet */}
+      <mesh position={[0, 0.15, -profondeur / 2 - 0.06]}>
+        <cylinderGeometry args={[0.013, 0.015, 0.3, 16]} />
+        <meshStandardMaterial color="#c4c7cb" metalness={0.95} roughness={0.2} />
+      </mesh>
+      <mesh position={[0, 0.3, -profondeur / 2 + 0.04]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.011, 0.011, 0.22, 12]} />
+        <meshStandardMaterial color="#c4c7cb" metalness={0.95} roughness={0.2} />
+      </mesh>
+    </group>
+  );
+}
+
+function Plaque({ x, y, largeur }: { x: number; y: number; largeur: number }) {
+  const w = Math.min(0.58, largeur - 0.06);
+  return (
+    <group position={[x, y, 0.02]}>
+      <Panneau position={[0, 0.003, 0]} taille={[w, 0.006, 0.5]} couleur="#141416" rugosite={0.12} metal={0.3} arrondi={0.002} />
+      {[-0.14, 0.14].flatMap((dx) =>
+        [-0.12, 0.12].map((dz) => (
+          <mesh key={`${dx}${dz}`} position={[dx * (w / 0.58), 0.0065, dz]} rotation={[-Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[0.07, 0.075, 32]} />
+            <meshStandardMaterial color="#5c5c60" />
+          </mesh>
+        )),
+      )}
+    </group>
+  );
+}
+
+function RangeeCuisine({ prefixe, longueur, longueurHaut, gamme, plan, credence, hauteurPlan, tiroirs, evier = -1, plaque = -1 }: { prefixe: string; longueur: number; longueurHaut: number; gamme: Gamme; plan: FicheCuisine["planTravail"]; credence: FicheCuisine["credence"]; hauteurPlan: number; tiroirs: number; evier?: number; plaque?: number }) {
   const finition: Finition = { gamme };
   const nb = Math.max(1, Math.round(longueur / 0.6));
   const w = longueur / nb;
-  const hBas = 0.87;
-  const prof = 0.6;
-  const socle = 0.1;
+  const hBas = hauteurPlan - E_PLAN; // haut des caissons bas
+  const hCaisson = hBas - SOCLE;
   const nbHaut = Math.max(0, Math.round(longueurHaut / 0.6));
   const wHaut = nbHaut ? longueurHaut / nbHaut : 0;
-  const planMat: Finition = plan === "quartz" ? { couleur: "#f3f1ec", rugosite: 0.18 } : plan === "bois" ? { finition: "chene_naturel" } : { couleur: "#c9c4bb", rugosite: 0.55 };
-  const zFacade = prof / 2 + E / 2 + 0.002;
+  const zFacade = PROF / 2 + E / 2 + 0.002;
+  const yHaut = hauteurPlan + 0.55; // bas des meubles hauts
+  const hH = 0.72;
+  const pH = 0.35;
+  const trouEvier = evier >= 0 && evier < nb ? { x: w * (evier + 0.5), largeur: Math.min(0.5, w - 0.1), profondeur: 0.4 } : undefined;
   return (
     <group>
-      <Panneau position={[longueur / 2, socle / 2, -0.04]} taille={[longueur, socle, prof - 0.08]} couleur="#2e2b29" rugosite={0.6} arrondi={0.002} />
+      <Panneau position={[longueur / 2, SOCLE / 2, -0.04]} taille={[longueur, SOCLE, PROF - 0.08]} couleur="#2e2b29" rugosite={0.6} arrondi={0.002} />
+      {/* joues de finition aux deux bouts de la rangée, dans la finition des façades */}
+      <Panneau position={[-E / 2 - 0.001, SOCLE + hCaisson / 2, 0.01]} taille={[E, hCaisson, PROF + 0.02]} {...finition} />
+      <Panneau position={[longueur + E / 2 + 0.001, SOCLE + hCaisson / 2, 0.01]} taille={[E, hCaisson, PROF + 0.02]} {...finition} />
+      {nbHaut > 0 && (
+        <>
+          <Panneau position={[-E / 2 - 0.001, yHaut + hH / 2, -PROF / 2 + pH / 2 + 0.01]} taille={[E, hH, pH + 0.02]} {...finition} />
+          <Panneau position={[longueurHaut + E / 2 + 0.001, yHaut + hH / 2, -PROF / 2 + pH / 2 + 0.01]} taille={[E, hH, pH + 0.02]} {...finition} />
+        </>
+      )}
       {Array.from({ length: nb }, (_, i) => {
-        const cx = w * (i + 0.5);
+        const xa = w * i;
+        const cx = xa + w / 2;
         const tiroir = i < tiroirs;
         const cote: 1 | -1 = i % 2 === 0 ? 1 : -1;
         return (
           <group key={`bas${i}`}>
-            <Panneau position={[cx, socle + (hBas - socle) / 2, 0]} taille={[w - 0.004, hBas - socle, prof]} {...finition} />
+            <Caisson x={xa + 0.002} y={SOCLE} largeur={w - 0.004} hauteur={hCaisson} profondeur={PROF} etageres={tiroir ? [] : [hCaisson * 0.5]} gamme={gamme}>
+              {!tiroir && <ContenuBas largeur={w - 0.004} profondeur={PROF} etagere={hCaisson * 0.5} />}
+            </Caisson>
             {tiroir ? (
-              [0, 1, 2].map((t) => (
-                <Tiroir key={t} id={`${prefixe}-tiroir-${i}-${t}`} x={cx} y={socle + 0.128 + t * 0.253} z={zFacade} largeur={w - 0.012} hauteur={0.245} profondeur={prof - 0.04} finition={finition} />
-              ))
+              [0, 1, 2].map((t) => {
+                const hT = (hCaisson - 0.012) / 3;
+                return <Tiroir key={t} id={`${prefixe}-tiroir-${i}-${t}`} x={cx} y={SOCLE + hT / 2 + t * hT + 0.004} z={zFacade} largeur={w - 0.012} hauteur={hT - 0.008} profondeur={PROF - 0.04} finition={finition} />;
+              })
             ) : (
-              <Battante id={`${prefixe}-porte-${i}`} charniere={cote === 1 ? cx - w / 2 + 0.006 : cx + w / 2 - 0.006} largeur={w - 0.012} hauteur={hBas - socle - 0.012} y={socle + (hBas - socle) / 2} z={zFacade} cote={cote} finition={finition} angle={1.6} />
+              <Battante id={`${prefixe}-porte-${i}`} charniere={cote === 1 ? cx - w / 2 + 0.006 : cx + w / 2 - 0.006} largeur={w - 0.012} hauteur={hCaisson - 0.008} y={SOCLE + hCaisson / 2} z={zFacade} cote={cote} finition={finition} angle={1.6} poigneePos="haut" />
             )}
           </group>
         );
       })}
-      {/* plan de travail et crédence */}
-      <Panneau position={[longueur / 2, hBas + 0.02, 0.015]} taille={[longueur + 0.02, 0.04, prof + 0.03]} {...planMat} arrondi={0.003} />
-      <Panneau position={[longueur / 2, hBas + 0.04 + 0.28, -prof / 2 + 0.006]} taille={[longueur, 0.56, 0.012]} {...matiereCredence(credence, plan)} arrondi={0.002} />
-      {/* évier : cuve creusée + robinet */}
-      {evier >= 0 && evier < nb && (
-        <group position={[w * (evier + 0.5), hBas + 0.04, 0.02]}>
-          <mesh position={[0, 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-            <planeGeometry args={[Math.min(0.5, w - 0.1), 0.4]} />
-            <meshStandardMaterial color="#9ea2a6" metalness={0.9} roughness={0.25} />
-          </mesh>
-          <mesh position={[0, 0.17, -0.2]}>
-            <cylinderGeometry args={[0.012, 0.014, 0.3, 16]} />
-            <meshStandardMaterial color="#b5b8bc" metalness={0.95} roughness={0.2} />
-          </mesh>
-          <mesh position={[0, 0.3, -0.1]} rotation={[Math.PI / 2, 0, 0]}>
-            <cylinderGeometry args={[0.01, 0.01, 0.22, 12]} />
-            <meshStandardMaterial color="#b5b8bc" metalness={0.95} roughness={0.2} />
-          </mesh>
-        </group>
-      )}
-      {/* plaque de cuisson */}
-      {plaque >= 0 && plaque < nb && (
-        <group position={[w * (plaque + 0.5), hBas + 0.042, 0.02]}>
-          <mesh rotation={[-Math.PI / 2, 0, 0]}>
-            <planeGeometry args={[Math.min(0.56, w - 0.06), 0.48]} />
-            <meshStandardMaterial color="#141416" roughness={0.12} metalness={0.3} />
-          </mesh>
-          {[-0.14, 0.14].flatMap((x) =>
-            [-0.12, 0.12].map((zz) => (
-              <mesh key={`${x}${zz}`} position={[x, 0.001, zz]} rotation={[-Math.PI / 2, 0, 0]}>
-                <ringGeometry args={[0.07, 0.075, 32]} />
-                <meshStandardMaterial color="#5c5c60" />
-              </mesh>
-            )),
-          )}
-        </group>
-      )}
-      {/* meubles hauts */}
+      {/* plan de travail, crédence, cuve, plaque */}
+      <PlanTravail longueur={longueur} y={hBas + E_PLAN / 2} plan={plan} trou={trouEvier} />
+      <Panneau position={[longueur / 2, hauteurPlan + (yHaut - hauteurPlan) / 2, -PROF / 2 + 0.006]} taille={[longueur, yHaut - hauteurPlan, 0.012]} {...matiereCredence(credence, plan)} arrondi={0.002} />
+      {trouEvier && <Evier x={trouEvier.x} y={hauteurPlan} largeur={trouEvier.largeur} profondeur={trouEvier.profondeur} />}
+      {plaque >= 0 && plaque < nb && plaque !== evier && <Plaque x={w * (plaque + 0.5)} y={hauteurPlan} largeur={w} />}
+      {/* meubles hauts : caissons creux garnis, porte à poignée basse */}
       {Array.from({ length: nbHaut }, (_, i) => {
-        const cx = wHaut * (i + 0.5);
+        const xa = wHaut * i;
+        const cx = xa + wHaut / 2;
         const cote: 1 | -1 = i % 2 === 0 ? 1 : -1;
-        const yH = 1.85;
-        const hH = 0.7;
-        const pH = 0.35;
         return (
-          <group key={`haut${i}`}>
-            <Panneau position={[cx, yH, -prof / 2 + pH / 2]} taille={[wHaut - 0.004, hH, pH]} {...finition} />
-            <Battante id={`${prefixe}-haut-${i}`} charniere={cote === 1 ? cx - wHaut / 2 + 0.006 : cx + wHaut / 2 - 0.006} largeur={wHaut - 0.012} hauteur={hH - 0.012} y={yH} z={-prof / 2 + pH + E / 2 + 0.002} cote={cote} finition={finition} angle={1.6} />
+          <group key={`haut${i}`} position={[0, 0, -PROF / 2 + pH / 2]}>
+            <Caisson x={xa + 0.002} y={yHaut} largeur={wHaut - 0.004} hauteur={hH} profondeur={pH} etageres={[hH * 0.5]} gamme={gamme}>
+              <ContenuHaut largeur={wHaut - 0.004} profondeur={pH} etagere={hH * 0.5} />
+            </Caisson>
+            <Battante id={`${prefixe}-haut-${i}`} charniere={cote === 1 ? cx - wHaut / 2 + 0.006 : cx + wHaut / 2 - 0.006} largeur={wHaut - 0.012} hauteur={hH - 0.008} y={yHaut + hH / 2} z={pH / 2 + E / 2 + 0.002} cote={cote} finition={finition} angle={1.6} poigneePos="bas" />
           </group>
         );
       })}
       {nbHaut > 0 && (
-        <mesh position={[longueurHaut / 2, 1.49, -prof / 2 + 0.33]}>
+        <mesh position={[longueurHaut / 2, yHaut - 0.006, -PROF / 2 + 0.33]}>
           <boxGeometry args={[longueurHaut - 0.04, 0.006, 0.012]} />
           <meshStandardMaterial color="#fff4d6" emissive="#ffe9c0" emissiveIntensity={2.5} toneMapped={false} />
         </mesh>
@@ -680,44 +836,51 @@ function RangeeCuisine({ prefixe, longueur, longueurHaut, gamme, plan, credence,
   );
 }
 
+/** Colonne : caisson creux à étagères, ou avec four encastré à hauteur des yeux. */
 function Colonne({ id, x, gamme, four }: { id: string; x: number; gamme: Gamme; four: boolean }) {
   const finition: Finition = { gamme };
   const hauteur = 2.2;
+  const hC = hauteur - SOCLE;
+  const zF = PROF / 2 + E / 2 + 0.002;
   return (
-    <group position={[x, 0, 0]}>
-      <Panneau position={[0, 0.05, -0.04]} taille={[0.6, 0.1, 0.52]} couleur="#2e2b29" rugosite={0.6} arrondi={0.002} />
-      <Panneau position={[0, 0.1 + (hauteur - 0.1) / 2, 0]} taille={[0.6, hauteur - 0.1, 0.6]} {...finition} />
+    <group position={[x - 0.3, 0, 0]}>
+      <Panneau position={[0.3, SOCLE / 2, -0.04]} taille={[0.6, SOCLE, PROF - 0.08]} couleur="#2e2b29" rugosite={0.6} arrondi={0.002} />
+      <Panneau position={[-E / 2 - 0.001, SOCLE + hC / 2, 0.01]} taille={[E, hC, PROF + 0.02]} {...finition} />
+      <Panneau position={[0.6 + E / 2 + 0.001, SOCLE + hC / 2, 0.01]} taille={[E, hC, PROF + 0.02]} {...finition} />
+      <Panneau position={[0.3, SOCLE + hC + E / 2, 0]} taille={[0.6 + 2 * E, E, PROF]} {...finition} />
       {four ? (
         <>
-          <Battante id={`${id}-haut`} charniere={-0.294} largeur={0.588} hauteur={0.6} y={1.9} z={0.3 + E / 2 + 0.002} cote={1} finition={finition} angle={1.6} />
-          <Battante id={`${id}-bas`} charniere={-0.294} largeur={0.588} hauteur={0.74} y={0.48} z={0.3 + E / 2 + 0.002} cote={1} finition={finition} angle={1.6} />
-          {/* four encastré : façade noire + bandeau + poignée */}
-          <mesh position={[0, 1.23, 0.3 + 0.005]}>
-            <boxGeometry args={[0.588, 0.6, 0.01]} />
-            <meshStandardMaterial color="#141416" roughness={0.15} metalness={0.4} />
-          </mesh>
-          <mesh position={[0, 1.47, 0.3 + 0.012]}>
-            <boxGeometry args={[0.5, 0.05, 0.004]} />
-            <meshStandardMaterial color="#2a2a2e" roughness={0.3} metalness={0.6} />
-          </mesh>
-          <Poignee position={[0, 1.36, 0.3 + 0.01]} vertical={false} longueur={0.46} />
+          <Caisson x={0} y={SOCLE} largeur={0.6} hauteur={hC} profondeur={PROF} etageres={[0.74 + 0.02, 0.74 + 0.6 + 0.02, hC - 0.35]} gamme={gamme}>
+            <ContenuBas largeur={0.6} profondeur={PROF} etagere={hC - 0.35} />
+          </Caisson>
+          <Battante id={`${id}-haut`} charniere={0.006} largeur={0.588} hauteur={hC - 0.74 - 0.6 - 0.04} y={SOCLE + 0.74 + 0.6 + 0.03 + (hC - 0.74 - 0.6 - 0.04) / 2} z={zF} cote={1} finition={finition} angle={1.6} poigneePos="bas" />
+          <Battante id={`${id}-bas`} charniere={0.006} largeur={0.588} hauteur={0.74 - 0.008} y={SOCLE + 0.74 / 2} z={zF} cote={1} finition={finition} angle={1.6} poigneePos="haut" />
+          {/* four encastré : façade vitrée noire, bandeau, poignée pleine largeur */}
+          <Panneau position={[0.3, SOCLE + 0.74 + 0.3, PROF / 2 + 0.005]} taille={[0.588, 0.58, 0.012]} couleur="#141416" rugosite={0.15} metal={0.4} arrondi={0.002} />
+          <Panneau position={[0.3, SOCLE + 0.74 + 0.53, PROF / 2 + 0.013]} taille={[0.5, 0.05, 0.004]} couleur="#2a2a2e" rugosite={0.3} metal={0.6} arrondi={0.001} />
+          <Poignee position={[0.3, SOCLE + 0.74 + 0.44, PROF / 2 + 0.012]} vertical={false} longueur={0.46} forcer="barre_inox" />
         </>
       ) : (
-        <Battante id={id} charniere={-0.294} largeur={0.588} hauteur={hauteur - 0.112} y={0.1 + (hauteur - 0.1) / 2} z={0.3 + E / 2 + 0.002} cote={1} finition={finition} angle={1.6} />
+        <>
+          <Caisson x={0} y={SOCLE} largeur={0.6} hauteur={hC} profondeur={PROF} etageres={[hC * 0.25, hC * 0.5, hC * 0.75]} gamme={gamme}>
+            <ContenuBas largeur={0.6} profondeur={PROF} etagere={hC * 0.5} />
+          </Caisson>
+          <Battante id={id} charniere={0.006} largeur={0.588} hauteur={hC - 0.008} y={SOCLE + hC / 2} z={zF} cote={1} finition={finition} angle={1.6} poigneePos="milieu" />
+        </>
       )}
     </group>
   );
 }
 
 /** Caisson d'angle plein (sous le plan) qui relie la rangée principale à un retour. */
-function Angle({ x, gamme, plan, credence }: { x: number; gamme: Gamme; plan: FicheCuisine["planTravail"]; credence: FicheCuisine["credence"] }) {
-  const planMat: Finition = plan === "quartz" ? { couleur: "#f3f1ec", rugosite: 0.18 } : plan === "bois" ? { finition: "chene_naturel" } : { couleur: "#c9c4bb", rugosite: 0.55 };
+function Angle({ x, gamme, plan, credence, hauteurPlan }: { x: number; gamme: Gamme; plan: FicheCuisine["planTravail"]; credence: FicheCuisine["credence"]; hauteurPlan: number }) {
+  const hBas = hauteurPlan - E_PLAN;
   return (
     <group position={[x, 0, 0]}>
-      <Panneau position={[0, 0.05, 0]} taille={[0.6, 0.1, 0.6]} couleur="#2e2b29" rugosite={0.6} arrondi={0.002} />
-      <Panneau position={[0, 0.1 + 0.77 / 2, 0]} taille={[0.6, 0.77, 0.6]} gamme={gamme} />
-      <Panneau position={[0, 0.89, 0]} taille={[0.62, 0.04, 0.63]} {...planMat} arrondi={0.003} />
-      <Panneau position={[0, 0.91 + 0.28, -0.3 + 0.006]} taille={[0.6, 0.56, 0.012]} {...matiereCredence(credence, plan)} arrondi={0.002} />
+      <Panneau position={[0, SOCLE / 2, 0]} taille={[0.6, SOCLE, 0.52]} couleur="#2e2b29" rugosite={0.6} arrondi={0.002} />
+      <Panneau position={[0, SOCLE + (hBas - SOCLE) / 2, 0]} taille={[0.6, hBas - SOCLE, PROF]} gamme={gamme} />
+      <Panneau position={[0, hBas + E_PLAN / 2, 0]} taille={[0.62, E_PLAN, 0.63]} {...matierePlan(plan)} arrondi={0.003} />
+      <Panneau position={[0, hauteurPlan + 0.275, -0.3 + 0.006]} taille={[0.6, 0.55, 0.012]} {...matiereCredence(credence, plan)} arrondi={0.002} />
     </group>
   );
 }
@@ -736,7 +899,7 @@ function Cuisine({ fiche }: { fiche: FicheCuisine }) {
   // plaque sur le dernier meuble, évier sur le premier meuble à porte qui n'est pas la plaque
   const plaque = nb0 >= 2 ? nb0 - 1 : 0;
   const evier = nb0 >= 3 ? Array.from({ length: nb0 }, (_, i) => i).find((i) => i >= fiche.tiroirs && i !== plaque) ?? -1 : -1;
-  const commun = { gamme: fiche.gamme, plan: fiche.planTravail, credence: fiche.credence };
+  const commun = { gamme: fiche.gamme, plan: fiche.planTravail, credence: fiche.credence, hauteurPlan: fiche.hauteurPlanM };
   const mur: Finition = { couleur: "#f1ece4", rugosite: 0.95 };
 
   return (
@@ -1008,7 +1171,10 @@ export default function Scene3D({ fiche, onReady }: { fiche: FicheProjet; onRead
   }, []);
   const ouvrants = aDesOuvrants(fiche);
   const style = useMemo<Style>(
-    () => (fiche.famille === "fenetre" ? { finition: "blanc", poignees: "barre_inox" } : { finition: finitionEffective(fiche.gamme, fiche.finition), poignees: fiche.poignees }),
+    () =>
+      fiche.famille === "fenetre"
+        ? { finition: "blanc", poignees: "barre_inox", facadeStyle: "lisse", interieur: "blanc" }
+        : { finition: finitionEffective(fiche.gamme, fiche.finition), poignees: fiche.poignees, facadeStyle: fiche.facadeStyle, interieur: fiche.interieur },
     [fiche],
   );
 
