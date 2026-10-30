@@ -83,6 +83,12 @@ export function extraireHeuristique(texte: string, familleChoisie?: Famille): Re
   const brut: Record<string, unknown> = { famille, commentaire: texte.slice(0, 2000) };
   const g = gamme(t);
   if (g) brut.gamme = g;
+  // finition nommée (comprise dans la gamme) ; la validation retire une finition qui ne colle pas à la gamme
+  const finition = /noyer/.test(t) ? "noyer" : /chene fume|fume/.test(t) ? "chene_fume" : /frene/.test(t) ? "frene" : /chene/.test(t) ? (g === "essentiel" ? "decor_chene" : "chene_naturel") : /terracotta|brique/.test(t) ? "terracotta" : /sauge|vert/.test(t) ? "sauge" : /bleu/.test(t) ? "bleu_nuit" : /anthracite|gris fonce|noir/.test(t) ? "anthracite" : /gris/.test(t) ? "gris_clair" : /lin|beige|sable/.test(t) ? "lin" : undefined;
+  if (finition && famille !== "fenetre") brut.finition = finition;
+  if (/sans poignee|push|pression/.test(t)) brut.poignees = "sans";
+  else if (/laiton|dore/.test(t)) brut.poignees = "barre_laiton";
+  else if (/inox|chrome/.test(t)) brut.poignees = "barre_inox";
   const tiroirs = t.match(/(\d+)\s*tiroirs?/);
   if (tiroirs) brut.tiroirs = Number(tiroirs[1]);
   const quantite = t.match(/(\d+)\s*(?:[a-z]+\s+)?(fenetres?|portes-fenetres?|exemplaires|pieces)/);
@@ -98,6 +104,8 @@ export function extraireHeuristique(texte: string, familleChoisie?: Famille): Re
         brut.defautsAppliques = ["profondeurM"];
       }
       const porte = /coulissant/.test(t) ? "coulissant" : /pliant/.test(t) ? "pliant" : /battant/.test(t) ? "battant" : /sans porte|ouvert/.test(t) ? "ouvert" : undefined;
+      if (/penderie seule|que de la penderie|surtout (de la )?penderie|tout en penderie/.test(t)) brut.amenagement = "penderie";
+      if (/que des etageres|surtout des etageres|tout en etageres/.test(t)) brut.amenagement = "etageres";
       if (famille === "dressing") {
         if (porte === "pliant") brut.facade = "battant";
         else if (porte) brut.facade = porte;
@@ -115,7 +123,8 @@ export function extraireHeuristique(texte: string, familleChoisie?: Famille): Re
       if (dims[1] !== undefined) brut.longueurHautM = dims[1];
       if (/sans (meubles? )?hauts?/.test(t)) brut.longueurHautM = 0;
       brut.implantation = /ilot/.test(t) ? "ilot" : /en u\b/.test(t) ? "U" : /en l\b/.test(t) ? "L" : /lineaire|en ligne|en longueur/.test(t) ? "lineaire" : undefined;
-      brut.planTravail = /quartz|pierre|granit/.test(t) ? "quartz" : /bois|chene/.test(t) ? "bois" : /stratifie/.test(t) ? "stratifie" : undefined;
+      brut.planTravail = /quartz|pierre|granit/.test(t) ? "quartz" : /plan (de travail )?(en )?bois|plan (de travail )?(en )?chene|bois massif/.test(t) ? "bois" : /stratifie/.test(t) ? "stratifie" : undefined;
+      if (/carreaux|carrelage|metro/.test(t)) brut.credence = "carreaux";
       const colonnes = t.match(/(\d+)\s*colonnes?/);
       if (colonnes) brut.colonnes = Number(colonnes[1]);
       if (brut.implantation === undefined) delete brut.implantation;
@@ -132,7 +141,9 @@ export function extraireHeuristique(texte: string, familleChoisie?: Famille): Re
       else if (/un vantail|1 vantail/.test(t)) brut.vantaux = 1;
       if (/volet/.test(t)) brut.voletRoulant = true;
       if (/depose|remplac|changer|anciennes?/.test(t)) brut.depose = true;
-      if (/couleur|gris|anthracite|noir/.test(t)) brut.couleurHorsBlanc = true;
+      if (/couleur|gris|anthracite|noir|bronze/.test(t)) brut.couleurHorsBlanc = true;
+      brut.teinte = /anthracite|gris fonce/.test(t) ? "anthracite" : /noir/.test(t) ? "noir" : /bronze|brun/.test(t) ? "bronze" : /gris/.test(t) ? "gris" : "blanc";
+      if (/croisillon|petits.?bois|carreaux/.test(t)) brut.petitsBois = true;
       if (quantite) brut.quantite = Number(quantite[1]);
       if (brut.materiau === undefined) delete brut.materiau;
       if (brut.ouverture === undefined) delete brut.ouverture;

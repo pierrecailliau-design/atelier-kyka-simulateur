@@ -7,7 +7,8 @@
  * Variables : HUBSPOT_PRIVATE_APP_TOKEN, HUBSPOT_PIPELINE_ID (953151656),
  * HUBSPOT_STAGE_ESTIMATION_RECUE (1472120102), HUBSPOT_OWNER_ID (optionnel, qui reçoit les tâches).
  */
-import { LIBELLES, type FicheProjet } from "./fiche/schema";
+import { LIBELLES, finitionEffective, type FicheProjet } from "./fiche/schema";
+import { FINITIONS, OPTIONS_CHAMP, POIGNEES, TEINTES_FENETRE, libelleChamp } from "./fiche/libelles";
 import type { Estimation } from "./prix/engine";
 
 export interface Contact {
@@ -68,13 +69,28 @@ async function upsertContact(c: Contact): Promise<string> {
   throw new Error(`HubSpot contact ${creation.status} : ${JSON.stringify(creation.data)}`);
 }
 
-function resumeFiche(fiche: FicheProjet): string {
+/** Résumé lisible par l'équipe : un champ par ligne, en français, valeurs traduites quand on a un libellé. */
+export function resumeFiche(fiche: FicheProjet): string {
   const f = fiche as unknown as Record<string, unknown>;
+  const libelleValeur = (k: string, v: unknown): string => {
+    if (typeof v === "number") return k.endsWith("M") ? `${String(v).replace(".", ",")} m` : String(v);
+    if (typeof v === "boolean") return v ? "oui" : "non";
+    if (typeof v === "string") {
+      if (k === "finition" && v in FINITIONS) return FINITIONS[v as keyof typeof FINITIONS].libelle;
+      if (k === "poignees" && v in POIGNEES) return POIGNEES[v as keyof typeof POIGNEES].libelle;
+      if (k === "teinte" && v in TEINTES_FENETRE) return TEINTES_FENETRE[v as keyof typeof TEINTES_FENETRE].libelle;
+      const option = OPTIONS_CHAMP[k]?.find((o) => o.valeur === v);
+      return option?.libelle ?? v;
+    }
+    return Array.isArray(v) ? v.join(", ") : String(v);
+  };
   const lignes = Object.entries(f)
-    .filter(([k, v]) => !["famille", "commentaire", "defautsAppliques"].includes(k) && v !== undefined && v !== false && v !== 0)
-    .map(([k, v]) => `${k} : ${Array.isArray(v) ? v.join(", ") : String(v)}`);
-  if (fiche.defautsAppliques.length) lignes.push(`valeurs par défaut : ${fiche.defautsAppliques.join(", ")}`);
-  if (fiche.commentaire) lignes.push(`commentaire client : ${fiche.commentaire}`);
+    .filter(([k, v]) => !["famille", "commentaire", "precisions", "defautsAppliques"].includes(k) && v !== undefined && v !== false && v !== 0 && v !== "")
+    .map(([k, v]) => `${libelleChamp(k)} : ${libelleValeur(k, v)}`);
+  if (fiche.famille !== "fenetre" && !fiche.finition) lignes.push(`finition : ${FINITIONS[finitionEffective(fiche.gamme)].libelle} (standard de la gamme)`);
+  if (fiche.defautsAppliques.length) lignes.push(`valeurs par défaut : ${fiche.defautsAppliques.map(libelleChamp).join(", ")}`);
+  if (fiche.precisions) lignes.push(`PRÉCISIONS DU CLIENT : ${fiche.precisions}`);
+  if (fiche.commentaire) lignes.push(`texte d'origine : ${fiche.commentaire}`);
   return lignes.join("\n");
 }
 

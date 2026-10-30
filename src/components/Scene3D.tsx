@@ -10,9 +10,8 @@ import { ContactShadows, Environment, Lightformer, OrbitControls, RoundedBox, So
 import { easing } from "maath";
 import * as THREE from "three";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { FicheCuisine, FicheDressing, FicheFenetre, FichePlacard, FicheProjet } from "@/lib/fiche/schema";
-
-type Gamme = FicheDressing["gamme"];
+import { finitionEffective, type FicheCuisine, type FicheDressing, type FicheFenetre, type FichePlacard, type FicheProjet, type Finition as CodeFinition, type Gamme, type Poignees } from "@/lib/fiche/schema";
+import { FINITIONS, POIGNEES, TEINTES_FENETRE } from "@/lib/fiche/libelles";
 const E = 0.019; // épaisseur de panneau
 const ACCENT = "#8a5a2b";
 
@@ -20,6 +19,10 @@ const ACCENT = "#8a5a2b";
 type Ouverture = { estOuvert: (id: string, suitTout?: boolean) => boolean; basculer: (id: string, suitTout?: boolean) => void };
 const OuvertureContext = createContext<Ouverture>({ estOuvert: () => false, basculer: () => {} });
 const SurvolContext = createContext(false);
+
+/** Style choisi par le client pour les meubles : finition effective et poignées. Lu par Matiere et Poignee. */
+type Style = { finition: CodeFinition; poignees: Poignees };
+const StyleContext = createContext<Style>({ finition: "lin", poignees: "barre_noire" });
 
 /**
  * Élément mobile (porte, tiroir, vantail). `appliquer(t)` reçoit l'avancement 0 (fermé) → 1 (ouvert),
@@ -65,9 +68,11 @@ function alea(graine: number) {
   return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
 }
 
-let _bois: THREE.CanvasTexture | null = null;
-function textureBois() {
-  if (_bois) return _bois;
+const _bois = new Map<number, THREE.CanvasTexture>();
+/** Veinage de chêne procédural ; `contraste` module la force des veines (frêne doux → noyer marqué). La teinte vient du matériau. */
+function textureBois(contraste = 1) {
+  const existante = _bois.get(contraste);
+  if (existante) return existante;
   const c = document.createElement("canvas");
   c.width = 512;
   c.height = 512;
@@ -76,12 +81,12 @@ function textureBois() {
   ctx.fillStyle = "#dcc5a0";
   ctx.fillRect(0, 0, 512, 512);
   for (let i = 0; i < 14; i++) {
-    ctx.fillStyle = `rgba(255,240,215,${0.05 + r() * 0.1})`;
+    ctx.fillStyle = `rgba(255,240,215,${(0.05 + r() * 0.1) * contraste})`;
     ctx.fillRect(r() * 512, 0, 12 + r() * 50, 512);
   }
   for (let i = 0; i < 140; i++) {
     const x = r() * 512;
-    ctx.strokeStyle = `rgba(125,88,52,${0.03 + r() * 0.1})`;
+    ctx.strokeStyle = `rgba(125,88,52,${(0.03 + r() * 0.1) * contraste})`;
     ctx.lineWidth = 0.6 + r() * 2;
     ctx.beginPath();
     ctx.moveTo(x, 0);
@@ -94,7 +99,37 @@ function textureBois() {
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
-  _bois = t;
+  _bois.set(contraste, t);
+  return t;
+}
+
+let _carreaux: THREE.CanvasTexture | null = null;
+/** Carreaux métro blancs, joints gris clair, pour la crédence. */
+function textureCarreaux() {
+  if (_carreaux) return _carreaux;
+  const c = document.createElement("canvas");
+  c.width = 512;
+  c.height = 256;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = "#cfcac3";
+  ctx.fillRect(0, 0, 512, 256);
+  const w = 128;
+  const h = 64;
+  for (let row = 0; row < 4; row++) {
+    const decalage = row % 2 ? w / 2 : 0;
+    for (let x = -w; x < 512 + w; x += w) {
+      ctx.fillStyle = row % 3 === 1 ? "#f4f1ec" : "#f7f5f1";
+      ctx.fillRect(x + decalage + 3, row * h + 3, w - 6, h - 6);
+      // léger reflet en haut du carreau
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      ctx.fillRect(x + decalage + 6, row * h + 6, w - 12, 6);
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  _carreaux = t;
   return t;
 }
 
@@ -155,16 +190,25 @@ function textureCiel() {
 }
 
 /* ------------------------------------------------------------------ matières */
-type Finition = { gamme?: Gamme; couleur?: string; rugosite?: number; metal?: number; miroir?: boolean };
+/** `gamme` seule → finition du style courant (contexte) ; `finition` → une finition imposée (plan de travail en bois, par ex.). */
+type Finition = { gamme?: Gamme; finition?: CodeFinition; couleur?: string; rugosite?: number; metal?: number; miroir?: boolean; carte?: THREE.Texture };
 
-function Matiere({ gamme, couleur, rugosite, metal, miroir }: Finition) {
+function Matiere({ gamme, finition, couleur, rugosite, metal, miroir, carte }: Finition) {
   const survol = useContext(SurvolContext);
+  const style = useContext(StyleContext);
   const emissive = survol ? ACCENT : "#000000";
   const ei = survol ? 0.16 : 0;
   if (miroir) return <meshStandardMaterial color="#dfe7ec" roughness={0.06} metalness={0.85} envMapIntensity={1.4} emissive={emissive} emissiveIntensity={ei} />;
-  if (gamme === "premium") return <meshStandardMaterial map={textureBois()} color="#f6ecdc" roughness={0.48} emissive={emissive} emissiveIntensity={ei} />;
-  if (gamme === "confort") return <meshPhysicalMaterial color="#d8d1c4" roughness={0.26} clearcoat={0.55} clearcoatRoughness={0.22} emissive={emissive} emissiveIntensity={ei} />;
-  if (gamme === "essentiel") return <meshStandardMaterial color="#f4f2ed" roughness={0.72} emissive={emissive} emissiveIntensity={ei} />;
+  if (carte) return <meshStandardMaterial map={carte} color={couleur ?? "#ffffff"} roughness={rugosite ?? 0.5} emissive={emissive} emissiveIntensity={ei} />;
+  const code = finition ?? (gamme ? finitionEffective(gamme, style.finition) : undefined);
+  if (code) {
+    const f = FINITIONS[code];
+    if (f.bois) return <meshStandardMaterial map={textureBois(f.bois.contraste)} color={f.bois.teinte} roughness={gamme === "essentiel" ? 0.7 : 0.48} emissive={emissive} emissiveIntensity={ei} />;
+    if (gamme === "confort" || (!gamme && code !== "blanc" && code !== "gris_clair")) {
+      return <meshPhysicalMaterial color={f.couleur} roughness={0.26} clearcoat={0.55} clearcoatRoughness={0.22} emissive={emissive} emissiveIntensity={ei} />;
+    }
+    return <meshStandardMaterial color={f.couleur} roughness={0.72} emissive={emissive} emissiveIntensity={ei} />;
+  }
   return <meshStandardMaterial color={couleur ?? "#cccccc"} roughness={rugosite ?? 0.6} metalness={metal ?? 0} emissive={emissive} emissiveIntensity={ei} />;
 }
 
@@ -210,18 +254,22 @@ function Trapeze({ x0, largeur, hGauche, hDroite, position, ...finition }: Finit
 /** Pente éventuelle d'un rangement : hauteur du dessus en fonction de x (haut à gauche, bas à droite). */
 type Pente = { active: boolean; hauteurEn: (x: number) => number; hMin: number };
 
-/** Poignée barre fine noire, moderne. */
-function Poignee({ position, vertical = true, longueur = 0.18 }: { position: [number, number, number]; vertical?: boolean; longueur?: number }) {
+/** Poignée barre fine, dans le style choisi (noire, inox, laiton) ; « sans » = ouverture par pression, rien à dessiner. */
+function Poignee({ position, vertical = true, longueur = 0.18, forcer }: { position: [number, number, number]; vertical?: boolean; longueur?: number; forcer?: Poignees }) {
+  const style = useContext(StyleContext);
+  const code = forcer ?? style.poignees;
+  if (code === "sans") return null;
+  const p = POIGNEES[code];
   return (
     <group position={position} rotation={vertical ? [0, 0, 0] : [0, 0, Math.PI / 2]}>
       <mesh position={[0, 0, 0.018]} castShadow>
         <boxGeometry args={[0.011, longueur, 0.011]} />
-        <meshStandardMaterial color="#26262a" metalness={0.7} roughness={0.35} />
+        <meshStandardMaterial color={p.couleur} metalness={p.metal} roughness={p.rugosite} />
       </mesh>
       {[-1, 1].map((s) => (
         <mesh key={s} position={[0, s * (longueur / 2 - 0.02), 0.008]}>
           <boxGeometry args={[0.009, 0.009, 0.016]} />
-          <meshStandardMaterial color="#26262a" metalness={0.7} roughness={0.35} />
+          <meshStandardMaterial color={p.couleur} metalness={p.metal} roughness={p.rugosite} />
         </mesh>
       ))}
     </group>
@@ -287,16 +335,18 @@ function Pliante({ id, charniere, largeur, hauteur, y, z, cote, finition, haut }
 /** Panneau coulissant : glisse de `course` (signée) devant son voisin. `course` = 0 : panneau fixe. */
 function Coulissante({ id, x, y, z, largeur, hauteur, course, finition, suitTout, haut }: { id: string; x: number; y: number; z: number; largeur: number; hauteur: number; course: number; finition: Finition; suitTout?: boolean; haut?: Haut }) {
   const g = useRef<THREE.Group>(null);
+  const style = useContext(StyleContext);
   const yBas = y - hauteur / 2;
   const yPoignee = haut ? yBas + Math.min(haut.hGauche, haut.hDroite) * 0.5 : y;
+  // prise verticale : dans la teinte des poignées (noire par défaut, y compris « sans poignée »), peu brillante
+  const prise = style.poignees === "sans" ? POIGNEES.barre_noire : POIGNEES[style.poignees];
   const contenu = (
     <group ref={g} position={[x, 0, z]}>
       <VantailPorte x0={-largeur / 2} largeur={largeur} yBas={yBas} hauteur={hauteur} haut={haut} finition={finition} />
       {course !== 0 && (
-        /* prise verticale creusée */
         <mesh position={[-Math.sign(course) * (largeur / 2 - 0.05), yPoignee, E / 2 + 0.001]}>
           <boxGeometry args={[0.022, 0.3, 0.004]} />
-          <meshStandardMaterial color="#26262a" metalness={0.6} roughness={0.4} />
+          <meshStandardMaterial color={prise.couleur} metalness={Math.min(0.35, prise.metal)} roughness={0.5} />
         </mesh>
       )}
     </group>
@@ -382,6 +432,7 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
   const led = fiche.famille === "dressing" ? fiche.eclairageLed : false;
   const tiroirs = fiche.tiroirs;
   const configuration = fiche.famille === "placard" ? fiche.configuration : "standard";
+  const amenagement = fiche.amenagement;
 
   // Pente du dessus : sous escalier (raide) ou sous pente (douce), haut à gauche, bas à droite.
   const pente = useMemo<Pente>(() => {
@@ -417,7 +468,8 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
       }
       const dansSection = Math.min(3, tiroirsRestants);
       const hautTiroirs = plinthe + E + dansSection * 0.19;
-      const penderie = i % 2 === 0 && hSec - hautTiroirs > 1.25;
+      const veutPenderie = amenagement === "penderie" ? true : amenagement === "etageres" ? false : i % 2 === 0;
+      const penderie = veutPenderie && hSec - hautTiroirs > 1.25;
       if (penderie) {
         const yTringle = hSec - 0.26;
         elements.push(
@@ -448,7 +500,7 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
     }
     return elements;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [W, H, P, n, sw, gamme, tiroirs, pente]);
+  }, [W, H, P, n, sw, gamme, tiroirs, pente, amenagement]);
 
   const facades = useMemo(() => {
     const elements: React.ReactNode[] = [];
@@ -529,7 +581,14 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
 }
 
 /* ------------------------------------------------------------------ cuisine */
-function RangeeCuisine({ prefixe, longueur, longueurHaut, gamme, plan, tiroirs, evier = -1, plaque = -1 }: { prefixe: string; longueur: number; longueurHaut: number; gamme: Gamme; plan: FicheCuisine["planTravail"]; tiroirs: number; evier?: number; plaque?: number }) {
+/** Matière de la crédence selon le choix du client et le plan de travail. */
+function matiereCredence(credence: FicheCuisine["credence"], plan: FicheCuisine["planTravail"]): Finition {
+  if (credence === "carreaux") return { carte: textureCarreaux(), rugosite: 0.25 };
+  if (credence === "blanche") return { couleur: "#f6f4ef", rugosite: 0.35 };
+  return plan === "quartz" ? { couleur: "#eceae5", rugosite: 0.3 } : plan === "bois" ? { finition: "chene_naturel" } : { couleur: "#e4dfd6", rugosite: 0.4 };
+}
+
+function RangeeCuisine({ prefixe, longueur, longueurHaut, gamme, plan, credence, tiroirs, evier = -1, plaque = -1 }: { prefixe: string; longueur: number; longueurHaut: number; gamme: Gamme; plan: FicheCuisine["planTravail"]; credence: FicheCuisine["credence"]; tiroirs: number; evier?: number; plaque?: number }) {
   const finition: Finition = { gamme };
   const nb = Math.max(1, Math.round(longueur / 0.6));
   const w = longueur / nb;
@@ -538,7 +597,7 @@ function RangeeCuisine({ prefixe, longueur, longueurHaut, gamme, plan, tiroirs, 
   const socle = 0.1;
   const nbHaut = Math.max(0, Math.round(longueurHaut / 0.6));
   const wHaut = nbHaut ? longueurHaut / nbHaut : 0;
-  const planMat: Finition = plan === "quartz" ? { couleur: "#f3f1ec", rugosite: 0.18 } : plan === "bois" ? { gamme: "premium" } : { couleur: "#c9c4bb", rugosite: 0.55 };
+  const planMat: Finition = plan === "quartz" ? { couleur: "#f3f1ec", rugosite: 0.18 } : plan === "bois" ? { finition: "chene_naturel" } : { couleur: "#c9c4bb", rugosite: 0.55 };
   const zFacade = prof / 2 + E / 2 + 0.002;
   return (
     <group>
@@ -562,7 +621,7 @@ function RangeeCuisine({ prefixe, longueur, longueurHaut, gamme, plan, tiroirs, 
       })}
       {/* plan de travail et crédence */}
       <Panneau position={[longueur / 2, hBas + 0.02, 0.015]} taille={[longueur + 0.02, 0.04, prof + 0.03]} {...planMat} arrondi={0.003} />
-      <Panneau position={[longueur / 2, hBas + 0.04 + 0.28, -prof / 2 + 0.006]} taille={[longueur, 0.56, 0.012]} couleur={plan === "quartz" ? "#eceae5" : "#e4dfd6"} rugosite={0.4} arrondi={0.002} />
+      <Panneau position={[longueur / 2, hBas + 0.04 + 0.28, -prof / 2 + 0.006]} taille={[longueur, 0.56, 0.012]} {...matiereCredence(credence, plan)} arrondi={0.002} />
       {/* évier : cuve creusée + robinet */}
       {evier >= 0 && evier < nb && (
         <group position={[w * (evier + 0.5), hBas + 0.04, 0.02]}>
@@ -651,14 +710,14 @@ function Colonne({ id, x, gamme, four }: { id: string; x: number; gamme: Gamme; 
 }
 
 /** Caisson d'angle plein (sous le plan) qui relie la rangée principale à un retour. */
-function Angle({ x, gamme, plan }: { x: number; gamme: Gamme; plan: FicheCuisine["planTravail"] }) {
-  const planMat: Finition = plan === "quartz" ? { couleur: "#f3f1ec", rugosite: 0.18 } : plan === "bois" ? { gamme: "premium" } : { couleur: "#c9c4bb", rugosite: 0.55 };
+function Angle({ x, gamme, plan, credence }: { x: number; gamme: Gamme; plan: FicheCuisine["planTravail"]; credence: FicheCuisine["credence"] }) {
+  const planMat: Finition = plan === "quartz" ? { couleur: "#f3f1ec", rugosite: 0.18 } : plan === "bois" ? { finition: "chene_naturel" } : { couleur: "#c9c4bb", rugosite: 0.55 };
   return (
     <group position={[x, 0, 0]}>
       <Panneau position={[0, 0.05, 0]} taille={[0.6, 0.1, 0.6]} couleur="#2e2b29" rugosite={0.6} arrondi={0.002} />
       <Panneau position={[0, 0.1 + 0.77 / 2, 0]} taille={[0.6, 0.77, 0.6]} gamme={gamme} />
       <Panneau position={[0, 0.89, 0]} taille={[0.62, 0.04, 0.63]} {...planMat} arrondi={0.003} />
-      <Panneau position={[0, 0.91 + 0.28, -0.3 + 0.006]} taille={[0.6, 0.56, 0.012]} couleur={plan === "quartz" ? "#eceae5" : "#e4dfd6"} rugosite={0.4} arrondi={0.002} />
+      <Panneau position={[0, 0.91 + 0.28, -0.3 + 0.006]} taille={[0.6, 0.56, 0.012]} {...matiereCredence(credence, plan)} arrondi={0.002} />
     </group>
   );
 }
@@ -677,7 +736,7 @@ function Cuisine({ fiche }: { fiche: FicheCuisine }) {
   // plaque sur le dernier meuble, évier sur le premier meuble à porte qui n'est pas la plaque
   const plaque = nb0 >= 2 ? nb0 - 1 : 0;
   const evier = nb0 >= 3 ? Array.from({ length: nb0 }, (_, i) => i).find((i) => i >= fiche.tiroirs && i !== plaque) ?? -1 : -1;
-  const commun = { gamme: fiche.gamme, plan: fiche.planTravail };
+  const commun = { gamme: fiche.gamme, plan: fiche.planTravail, credence: fiche.credence };
   const mur: Finition = { couleur: "#f1ece4", rugosite: 0.95 };
 
   return (
@@ -734,9 +793,8 @@ function Cuisine({ fiche }: { fiche: FicheCuisine }) {
 }
 
 /* ------------------------------------------------------------------ fenêtre */
-const COULEUR_FENETRE = { pvc: "#f5f5f3", aluminium: "#9a9ea3", bois: "#b4804c" } as const;
 
-function Vantail({ id, charniere, largeur, hauteur, yBas, z, cote, finition, mode }: { id: string; charniere: number; largeur: number; hauteur: number; yBas: number; z: number; cote: 1 | -1; finition: Finition; mode: FicheFenetre["ouverture"] }) {
+function Vantail({ id, charniere, largeur, hauteur, yBas, z, cote, finition, mode, petitsBois }: { id: string; charniere: number; largeur: number; hauteur: number; yBas: number; z: number; cote: 1 | -1; finition: Finition; mode: FicheFenetre["ouverture"]; petitsBois: boolean }) {
   const g = useRef<THREE.Group>(null);
   const b = 0.05;
   // Pivot au bas du vantail (y = yBas) : rotation en y pour battre, en x pour basculer (oscillo-battant).
@@ -756,7 +814,16 @@ function Vantail({ id, charniere, largeur, hauteur, yBas, z, cote, finition, mod
         <boxGeometry args={[largeur - 2 * b, hauteur - 2 * b, 0.016]} />
         <meshPhysicalMaterial color="#d8e8f0" transparent opacity={0.22} roughness={0.03} metalness={0.05} clearcoat={1} />
       </mesh>
-      {mode !== "fixe" && <Poignee position={[cote * (largeur - b - 0.02), hauteur / 2, 0.03]} longueur={0.14} />}
+      {petitsBois && (
+        <>
+          {/* croisillons : une barre verticale au milieu, barres horizontales tous les ~45 cm */}
+          <Panneau position={[(cote * largeur) / 2, hauteur / 2, 0.012]} taille={[0.024, hauteur - 2 * b, 0.01]} {...finition} arrondi={0.002} />
+          {Array.from({ length: Math.max(1, Math.round((hauteur - 2 * b) / 0.45) - 1) }, (_, k) => k).map((k, _, arr) => (
+            <Panneau key={k} position={[(cote * largeur) / 2, b + ((hauteur - 2 * b) * (k + 1)) / (arr.length + 1), 0.012]} taille={[largeur - 2 * b, 0.024, 0.01]} {...finition} arrondi={0.002} />
+          ))}
+        </>
+      )}
+      {mode !== "fixe" && <Poignee position={[cote * (largeur - b - 0.02), hauteur / 2, 0.03]} longueur={0.14} forcer={finition.couleur && finition.couleur !== TEINTES_FENETRE.blanc.couleur ? "barre_noire" : "barre_inox"} />}
     </group>
   );
   if (mode === "fixe") return contenu;
@@ -770,7 +837,9 @@ function Vantail({ id, charniere, largeur, hauteur, yBas, z, cote, finition, mod
 function Fenetre({ fiche }: { fiche: FicheFenetre }) {
   const W = fiche.largeurM;
   const H = fiche.hauteurM;
-  const finition: Finition = fiche.materiau === "bois" ? { gamme: "premium" } : { couleur: fiche.couleurHorsBlanc ? "#3d4247" : COULEUR_FENETRE[fiche.materiau], rugosite: fiche.materiau === "aluminium" ? 0.35 : 0.6, metal: fiche.materiau === "aluminium" ? 0.45 : 0 };
+  // Bois : chêne naturel. PVC / alu : teinte choisie (une teinte hors blanc est chiffrée via couleurHorsBlanc).
+  const teinte = fiche.teinte === "blanc" && fiche.couleurHorsBlanc ? TEINTES_FENETRE.anthracite : TEINTES_FENETRE[fiche.teinte];
+  const finition: Finition = fiche.materiau === "bois" ? { finition: "chene_naturel" } : { couleur: teinte.couleur, rugosite: fiche.materiau === "aluminium" ? 0.35 : 0.6, metal: fiche.materiau === "aluminium" ? 0.45 : 0 };
   const yBas = 0.9; // allège
   const cadre = 0.07;
   const murEp = 0.24;
@@ -803,7 +872,7 @@ function Fenetre({ fiche }: { fiche: FicheFenetre }) {
       {Array.from({ length: nv }, (_, i) => {
         const cote: 1 | -1 = i === 0 ? 1 : -1;
         const charniere = cote === 1 ? -W / 2 + cadre : W / 2 - cadre;
-        return <Vantail key={i} id={`vantail-${i}`} charniere={charniere} largeur={wv} hauteur={H - 2 * cadre} yBas={yBas + cadre} z={z + (fiche.ouverture === "coulissant" && i === 1 ? 0.05 : 0)} cote={cote} finition={finition} mode={fiche.ouverture} />;
+        return <Vantail key={i} id={`vantail-${i}`} charniere={charniere} largeur={wv} hauteur={H - 2 * cadre} yBas={yBas + cadre} z={z + (fiche.ouverture === "coulissant" && i === 1 ? 0.05 : 0)} cote={cote} finition={finition} mode={fiche.ouverture} petitsBois={fiche.petitsBois} />;
       })}
       {fiche.voletRoulant && <Panneau position={[0, yBas + H + 0.1, -murEp / 2 + 0.03]} taille={[W + 0.12, 0.2, 0.2]} {...finition} arrondi={0.004} />}
     </group>
@@ -811,31 +880,44 @@ function Fenetre({ fiche }: { fiche: FicheFenetre }) {
 }
 
 /* ------------------------------------------------------------------ scène */
-function encombrement(fiche: FicheProjet): { w: number; h: number; cibleY: number; cibleZ: number } {
+function encombrement(fiche: FicheProjet): { w: number; h: number; cibleY: number; cibleZ: number; decalageX: number; distanceMin: number } {
   switch (fiche.famille) {
     case "cuisine": {
       const L = fiche.longueurBasM;
-      const retour = fiche.implantation === "L" ? L * 0.4 : fiche.implantation === "U" ? L * 0.4 : fiche.implantation === "ilot" ? 1.8 : 0;
-      const largeur = fiche.implantation === "U" ? L * 0.4 + 1.2 : fiche.implantation === "L" ? L * 0.6 + 0.6 + fiche.colonnes * 0.6 : L + fiche.colonnes * 0.6;
-      return { w: Math.max(largeur, retour + 1, 2.8), h: 2.3, cibleY: 1.0, cibleZ: retour * 0.35 };
+      const enU = fiche.implantation === "U";
+      const retour = fiche.implantation === "L" || enU ? L * 0.4 : fiche.implantation === "ilot" ? 1.8 : 0;
+      const largeur = enU ? L * 0.2 + 1.9 : fiche.implantation === "L" ? L * 0.6 + 0.6 + fiche.colonnes * 0.6 : L + fiche.colonnes * 0.6;
+      // En U on regarde de face, depuis l'entrée du U, assez loin pour que les retours et les colonnes ne cachent rien.
+      const profondeur = enU ? 0.3 + retour + fiche.colonnes * 0.61 : fiche.implantation === "L" ? 0.3 + retour : 0.6;
+      return { w: Math.max(largeur, 2.8), h: 2.3, cibleY: 1.0, cibleZ: enU ? profondeur * 0.4 : retour * 0.35, decalageX: enU ? 0.12 : 0.6, distanceMin: profondeur + 1.4 };
     }
     case "fenetre":
-      return { w: fiche.largeurM + 1.4, h: fiche.hauteurM + 1.2, cibleY: 0.9 + fiche.hauteurM / 2, cibleZ: 0 };
+      return { w: fiche.largeurM + 0.9, h: fiche.hauteurM + 0.7, cibleY: 0.9 + fiche.hauteurM / 2, cibleZ: 0, decalageX: 0.55, distanceMin: 1.6 };
     default:
-      return { w: fiche.largeurM, h: fiche.hauteurM, cibleY: fiche.hauteurM / 2, cibleZ: 0 };
+      return { w: fiche.largeurM, h: fiche.hauteurM, cibleY: fiche.hauteurM / 2, cibleZ: 0, decalageX: 0.6, distanceMin: fiche.profondeurM + 1 };
   }
 }
 
 function Camera({ fiche }: { fiche: FicheProjet }) {
-  const { camera } = useThree();
-  const { w, h, cibleY, cibleZ } = encombrement(fiche);
+  const camera = useThree((s) => s.camera);
+  const size = useThree((s) => s.size);
+  const { w, h, cibleY, cibleZ, decalageX, distanceMin } = encombrement(fiche);
+  const aspect = size.width / Math.max(1, size.height);
   useEffect(() => {
-    const d = Math.max(w, h) * 1.1 + 1.3;
-    camera.position.set(d * 0.6, cibleY + h * 0.22, cibleZ + d * 0.9);
+    // Distance pour que l'objet tienne dans la vue, en largeur comme en hauteur, quel que soit le format de l'écran
+    // (un téléphone en portrait a besoin de reculer bien plus qu'un écran large). La vue est en 3/4, d'où le facteur sur w.
+    const fovV = (40 * Math.PI) / 180;
+    const fovH = 2 * Math.atan(Math.tan(fovV / 2) * aspect);
+    const largeurVue = w * (0.55 + decalageX * 0.6) + 0.3;
+    const dLargeur = largeurVue / 2 / Math.tan(fovH / 2);
+    const dHauteur = (h + 0.4) / 2 / Math.tan(fovV / 2);
+    const d = Math.max(Math.max(dLargeur, dHauteur) * 1.12 + 0.6, distanceMin);
+    const dz = Math.sqrt(Math.max(0.2, 1 - decalageX * decalageX)) * 0.95;
+    camera.position.set(d * decalageX, cibleY + h * 0.22, cibleZ + d * dz);
     camera.lookAt(0, cibleY, cibleZ);
     camera.updateProjectionMatrix();
-  }, [camera, w, h, cibleY, cibleZ]);
-  return <OrbitControls target={[0, cibleY, cibleZ]} enablePan={false} enableDamping dampingFactor={0.08} minDistance={1.2} maxDistance={14} maxPolarAngle={Math.PI / 2 - 0.03} />;
+  }, [camera, w, h, cibleY, cibleZ, aspect, decalageX, distanceMin]);
+  return <OrbitControls target={[0, cibleY, cibleZ]} enablePan={false} enableDamping dampingFactor={0.08} minDistance={1.2} maxDistance={18} maxPolarAngle={Math.PI / 2 - 0.03} />;
 }
 
 /** Capture de la vue courante, réduite à 1 200 px de large en JPEG (≈ 100 Ko) pour la joindre au lead HubSpot. */
@@ -925,6 +1007,10 @@ export default function Scene3D({ fiche, onReady }: { fiche: FicheProjet; onRead
     setTout(v);
   }, []);
   const ouvrants = aDesOuvrants(fiche);
+  const style = useMemo<Style>(
+    () => (fiche.famille === "fenetre" ? { finition: "blanc", poignees: "barre_inox" } : { finition: finitionEffective(fiche.gamme, fiche.finition), poignees: fiche.poignees }),
+    [fiche],
+  );
 
   return (
     <>
@@ -962,9 +1048,11 @@ export default function Scene3D({ fiche, onReady }: { fiche: FicheProjet; onRead
         </Environment>
         <ContactShadows key={cle + JSON.stringify(fiche)} position={[0, 0.002, 0]} opacity={0.38} scale={16} blur={2.6} far={2.8} resolution={512} frames={1} color="#3b2f22" />
         <Piece fiche={fiche} />
-        <OuvertureContext.Provider value={ouverture}>
-          {fiche.famille === "dressing" || fiche.famille === "placard" ? <Rangement fiche={fiche} /> : fiche.famille === "cuisine" ? <Cuisine fiche={fiche} /> : <Fenetre fiche={fiche} />}
-        </OuvertureContext.Provider>
+        <StyleContext.Provider value={style}>
+          <OuvertureContext.Provider value={ouverture}>
+            {fiche.famille === "dressing" || fiche.famille === "placard" ? <Rangement fiche={fiche} /> : fiche.famille === "cuisine" ? <Cuisine fiche={fiche} /> : <Fenetre fiche={fiche} />}
+          </OuvertureContext.Provider>
+        </StyleContext.Provider>
         <Camera fiche={fiche} />
         <Capture onReady={onReady} />
       </Canvas>
@@ -978,7 +1066,7 @@ export default function Scene3D({ fiche, onReady }: { fiche: FicheProjet; onRead
               Tout fermer
             </button>
           </div>
-          <div className="pointer-events-none absolute bottom-4 right-4 rounded-full bg-white/80 px-3 py-1 text-xs text-stone-600 backdrop-blur">
+          <div className="pointer-events-none absolute bottom-4 right-4 hidden rounded-full bg-white/80 px-3 py-1 text-xs text-stone-600 backdrop-blur lg:block">
             {fiche.famille === "fenetre" ? (fiche.ouverture === "oscillo_battant" ? "Cliquez sur un vantail pour le basculer" : "Cliquez sur un vantail pour l’ouvrir") : "Cliquez sur une porte ou un tiroir pour l’ouvrir"}
           </div>
         </>

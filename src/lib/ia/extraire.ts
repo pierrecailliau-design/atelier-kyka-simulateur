@@ -5,11 +5,12 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import { DEFAUTS, FicheProjet, type Famille } from "../fiche/schema";
+import { DEFAUTS, FicheProjet, normaliser, type Famille } from "../fiche/schema";
 import type { Question, ReponseIA, Tour } from "./types";
 import { LIBELLE_QUESTION, OPTIONS_CHAMP } from "../fiche/libelles";
 
-const MODELE = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5";
+// Sonnet 5.5 : modèle courant au 30/10/2026 (2 $ / 10 $ par million de jetons). Surchargeable par ANTHROPIC_MODEL.
+const MODELE = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5-5";
 
 const SYSTEME = `Tu es l'assistant du simulateur d'Atelier Kyka, menuiserie sur mesure à Porto. Tu parles à un particulier, en français, simplement et chaleureusement, sans jargon.
 
@@ -19,6 +20,8 @@ Règles :
 - N'invente aucune dimension. Si une dimension manque, pose la question. Si le client dit qu'il ne sait pas, applique la valeur standard et note le champ dans defautsAppliques.
 - Pose au maximum trois questions par tour, les plus importantes d'abord (famille, puis dimensions, puis gamme, puis options). Propose des réponses à cliquer quand c'est possible, et toujours une valeur par défaut.
 - Gammes des meubles : essentiel (mélaminé), confort (MDF laqué), premium (placage chêne ou bois massif). Si le client parle de chêne, noyer, bois massif → premium ; laqué, mat, couleur → confort ; blanc simple, budget serré → essentiel.
+- Finition (champ finition, comprise dans le prix de la gamme) : essentiel → blanc, gris_clair, decor_chene ; confort → blanc_laque, lin, sauge, bleu_nuit, anthracite, terracotta ; premium → chene_naturel, chene_fume, noyer, frene. Remplis-la seulement si le client nomme une teinte ou une essence (« laqué gris » → confort + anthracite ; « noyer » → premium + noyer), sinon laisse-la vide et ne pose pas de question dessus.
+- Poignées (barre_noire, barre_inox, barre_laiton, sans), aménagement (mixte, penderie, etageres), crédence (assortie, blanche, carreaux), teinte de fenêtre (blanc, gris, anthracite, noir, bronze), petits-bois : à remplir seulement si le client en parle, jamais à demander.
 - Dimensions en mètres dans la fiche (2,40 m → 2.4 ; 240 cm → 2.4).
 - Cuisine : les longueurs sont celles des meubles bas et des meubles hauts, l'électroménager est exclu. Fenêtre : largeur × hauteur d'une fenêtre, et la quantité.
 - Si la demande n'est pas de la menuiserie (ou pas l'une des quatre familles), réponds avec statut hors_sujet et explique gentiment ce que tu sais faire.
@@ -113,7 +116,8 @@ export function questionsDepuisErreurs(famille: Famille, issues: z.core.$ZodIssu
 }
 
 /** Valide une fiche brute ; renvoie la fiche ou des questions. */
-export function valider(brut: Record<string, unknown>, message: string): ReponseIA {
+export function valider(brutInitial: Record<string, unknown>, message: string): ReponseIA {
+  const brut = normaliser(brutInitial);
   const r = FicheProjet.safeParse(brut);
   if (r.success) return { statut: "fiche", message, fiche: r.data };
   const famille = brut.famille as Famille | undefined;

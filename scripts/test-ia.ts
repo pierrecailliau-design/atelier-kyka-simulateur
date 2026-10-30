@@ -5,7 +5,7 @@
  *   npm run test:ia -- --heuristique   # force le mode sans IA pour comparer
  *
  * Imprime un tableau et un score, et écrit scripts/resultats-ia.md (à coller dans la conversation pour analyse).
- * Critère de réussite retenu au cadrage : 25 phrases sur 30 justes, sans question inutile.
+ * Critère de réussite retenu au cadrage : 85 % de phrases justes (28 sur 33), sans question inutile.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -67,6 +67,10 @@ const CAS: { phrase: string; attendu: Attendu }[] = [
   { phrase: "dressin 2m40 de larje 2m50 de hau porte coulisante chene 4 tiroir", attendu: { statut: "fiche", famille: "dressing", champs: { largeurM: 2.4, hauteurM: 2.5, facade: "coulissant", gamme: "premium", tiroirs: 4 } } },
   { phrase: "um roupeiro de 2,40 m por 2,50 m com portas de correr em carvalho", attendu: { statut: "fiche", famille: "dressing", champs: { largeurM: 2.4, hauteurM: 2.5, facade: "coulissant", gamme: "premium" } } },
   { phrase: "J'ai un mur de 3,20 m dans la chambre, du sol au plafond (2,55 m), je veux tout fermer avec des portes coulissantes et un miroir sur une porte, budget serré", attendu: { statut: "fiche", famille: "dressing", champs: { largeurM: 3.2, hauteurM: 2.55, facade: "coulissant", miroirPortes: 1, gamme: "essentiel" } } },
+  // --- personnalisation : finitions, poignées, crédence, teintes
+  { phrase: "Dressing 2,40 x 2,50, laqué vert sauge, poignées laiton, portes battantes", attendu: { statut: "fiche", famille: "dressing", champs: { largeurM: 2.4, hauteurM: 2.5, gamme: "confort", finition: "sauge", poignees: "barre_laiton", facade: "battant" } } },
+  { phrase: "cuisine en ligne 3 m de bas 2 m de hauts, façades noyer, plan quartz, crédence en carreaux métro, sans poignées", attendu: { statut: "fiche", famille: "cuisine", champs: { implantation: "lineaire", longueurBasM: 3, longueurHautM: 2, gamme: "premium", finition: "noyer", planTravail: "quartz", credence: "carreaux", poignees: "sans" } } },
+  { phrase: "fenêtre alu anthracite 1,20 x 1,40 oscillo-battante deux vantaux avec petits bois", attendu: { statut: "fiche", famille: "fenetre", champs: { materiau: "aluminium", teinte: "anthracite", couleurHorsBlanc: true, ouverture: "oscillo_battant", vantaux: 2, petitsBois: true, largeurM: 1.2, hauteurM: 1.4 } } },
   // --- hors sujet
   { phrase: "Pouvez-vous refaire ma salle de bain complète avec carrelage et plomberie ?", attendu: { statut: "hors_sujet" } },
   { phrase: "Combien coûte une table en chêne de 2 m ?", attendu: { statut: "hors_sujet" } },
@@ -110,7 +114,7 @@ async function main() {
   const forcerHeuristique = process.argv.includes("--heuristique");
   const avecIA = !forcerHeuristique && Boolean(process.env.ANTHROPIC_API_KEY);
   const extraireFiche = avecIA ? (await import("../src/lib/ia/extraire")).extraireFiche : null;
-  console.log(`Mode : ${avecIA ? `IA (${process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5"})` : "heuristique (pas de clé)"} · ${CAS.length} phrases\n`);
+  console.log(`Mode : ${avecIA ? `IA (${process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5-5"})` : "heuristique (pas de clé)"} · ${CAS.length} phrases\n`);
 
   const lignes: string[] = ["| # | Phrase | Résultat | Verdict |", "|---|---|---|---|"];
   let score = 0;
@@ -128,7 +132,7 @@ async function main() {
     if (!ok) console.log(`      → ${resume(r)}\n      ${ecarts.join(" ; ")}`);
     lignes.push(`| ${i + 1} | ${cas.phrase.replace(/\|/g, "/")} | ${resume(r).replace(/\|/g, "/")} | ${verdict.replace(/\|/g, "/")} |`);
   }
-  const bilan = `Score : ${score}/${CAS.length} (objectif 25/30) · mode ${avecIA ? "IA" : "heuristique"} · ${new Date().toISOString().slice(0, 16)}`;
+  const bilan = `Score : ${score}/${CAS.length} (objectif 85 %) · mode ${avecIA ? "IA" : "heuristique"} · ${new Date().toISOString().slice(0, 16)}`;
   console.log(`\n${bilan}`);
   writeFileSync(resolve(process.cwd(), "scripts/resultats-ia.md"), `# Test de lecture IA\n\n${bilan}\n\n${lignes.join("\n")}\n`);
   console.log("Détail écrit dans scripts/resultats-ia.md");

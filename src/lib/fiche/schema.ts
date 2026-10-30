@@ -7,6 +7,32 @@ import { z } from "zod";
 
 export const Gamme = z.enum(["essentiel", "confort", "premium"]);
 
+/**
+ * Finition (teinte ou essence) des façades et caissons. Chaque gamme a ses finitions (voir FINITIONS dans libelles.ts) ;
+ * le choix de finition est compris dans le prix de la gamme. Absente = finition standard de la gamme.
+ */
+export const Finition = z.enum([
+  // essentiel (mélaminé)
+  "blanc",
+  "gris_clair",
+  "decor_chene",
+  // confort (laqué)
+  "blanc_laque",
+  "lin",
+  "sauge",
+  "bleu_nuit",
+  "anthracite",
+  "terracotta",
+  // premium (bois)
+  "chene_naturel",
+  "chene_fume",
+  "noyer",
+  "frene",
+]);
+
+/** Style de poignées des façades. Sans effet sur le prix. */
+export const Poignees = z.enum(["barre_noire", "barre_inox", "barre_laiton", "sans"]);
+
 /** Champs présents sur toutes les familles. */
 const Commun = {
   /** Nombre d'exemplaires identiques. */
@@ -15,8 +41,16 @@ const Commun = {
   piece: z.string().max(80).optional(),
   /** Tout ce que le client a dit et qui ne rentre pas dans les cases. Transmis tel quel à HubSpot. */
   commentaire: z.string().max(2000).optional(),
+  /** Précisions saisies par le client sur l'écran 3D (« niche pour la TV », « tuyau à contourner »). Transmis à HubSpot. */
+  precisions: z.string().max(600).optional(),
   /** Champs remplis par une valeur standard faute d'information (« je ne sais pas »). */
   defautsAppliques: z.array(z.string()).default([]),
+};
+
+/** Champs communs aux meubles (dressing, placard, cuisine). */
+const Meuble = {
+  finition: Finition.optional(),
+  poignees: Poignees.default("barre_noire"),
 };
 
 export const FicheDressing = z.object({
@@ -31,6 +65,9 @@ export const FicheDressing = z.object({
   /** Nombre de portes équipées d'un miroir. */
   miroirPortes: z.number().int().min(0).max(8).default(0),
   penderieDouble: z.boolean().default(false),
+  /** Répartition intérieure : alternance penderie / étagères, tout en penderie, ou tout en étagères. */
+  amenagement: z.enum(["mixte", "penderie", "etageres"]).default("mixte"),
+  ...Meuble,
   ...Commun,
 });
 
@@ -45,6 +82,8 @@ export const FichePlacard = z.object({
   etageresSupplementaires: z.number().int().min(0).max(20).default(0),
   tiroirs: z.number().int().min(0).max(20).default(0),
   penderie: z.boolean().default(false),
+  amenagement: z.enum(["mixte", "penderie", "etageres"]).default("mixte"),
+  ...Meuble,
   ...Commun,
 });
 
@@ -59,6 +98,9 @@ export const FicheCuisine = z.object({
   planTravail: z.enum(["stratifie", "bois", "quartz"]),
   colonnes: z.number().int().min(0).max(6).default(0),
   tiroirs: z.number().int().min(0).max(20).default(0),
+  /** Crédence entre plan et meubles hauts : assortie au plan, blanche, ou carreaux. Sans effet sur le prix. */
+  credence: z.enum(["assortie", "blanche", "carreaux"]).default("assortie"),
+  ...Meuble,
   ...Commun,
 });
 
@@ -70,7 +112,11 @@ export const FicheFenetre = z.object({
   ouverture: z.enum(["fixe", "battant", "oscillo_battant", "coulissant"]),
   vitrage: z.enum(["double", "triple"]).default("double"),
   vantaux: z.union([z.literal(1), z.literal(2)]).default(1),
+  /** Teinte des profils (PVC et aluminium) ; une teinte autre que blanc implique couleurHorsBlanc. */
+  teinte: z.enum(["blanc", "gris", "anthracite", "noir", "bronze"]).default("blanc"),
   couleurHorsBlanc: z.boolean().default(false),
+  /** Petits-bois (croisillons) dans le vitrage : option à chiffrer par l'atelier. */
+  petitsBois: z.boolean().default(false),
   depose: z.boolean().default(false),
   voletRoulant: z.boolean().default(false),
   ...Commun,
@@ -89,6 +135,35 @@ export type FichePlacard = z.infer<typeof FichePlacard>;
 export type FicheCuisine = z.infer<typeof FicheCuisine>;
 export type FicheFenetre = z.infer<typeof FicheFenetre>;
 export type Famille = FicheProjet["famille"];
+export type Gamme = z.infer<typeof Gamme>;
+export type Finition = z.infer<typeof Finition>;
+export type Poignees = z.infer<typeof Poignees>;
+
+/**
+ * Met la fiche en cohérence après saisie : une teinte de fenêtre autre que blanc vaut « couleur hors blanc »
+ * (c'est elle qui est chiffrée), une finition qui n'appartient pas à la gamme choisie est retirée.
+ */
+export function normaliser(brut: Record<string, unknown>): Record<string, unknown> {
+  const f = { ...brut };
+  if (f.famille === "fenetre") {
+    if (typeof f.teinte === "string" && f.teinte !== "blanc") f.couleurHorsBlanc = true;
+    if (f.teinte === "blanc" && f.couleurHorsBlanc === true) f.teinte = undefined; // couleur demandée sans teinte précise : on laisse le choix
+  }
+  if (typeof f.finition === "string" && typeof f.gamme === "string" && !FINITIONS_PAR_GAMME[f.gamme as Gamme]?.includes(f.finition as Finition)) {
+    delete f.finition;
+  }
+  return f;
+}
+
+/** Finitions autorisées par gamme (les libellés et couleurs sont dans libelles.ts). */
+export const FINITIONS_PAR_GAMME: Record<Gamme, Finition[]> = {
+  essentiel: ["blanc", "gris_clair", "decor_chene"],
+  confort: ["blanc_laque", "lin", "sauge", "bleu_nuit", "anthracite", "terracotta"],
+  premium: ["chene_naturel", "chene_fume", "noyer", "frene"],
+};
+
+/** Finition effective : celle choisie si elle est de la gamme, sinon la première de la gamme. */
+export const finitionEffective = (gamme: Gamme, finition?: Finition): Finition => (finition && FINITIONS_PAR_GAMME[gamme].includes(finition) ? finition : FINITIONS_PAR_GAMME[gamme][0]);
 
 /** Valeurs standard appliquées quand le client répond « je ne sais pas ». */
 export const DEFAUTS: Record<Famille, Partial<FicheProjet>> = {

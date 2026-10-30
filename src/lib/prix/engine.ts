@@ -219,6 +219,7 @@ export function estimer(fiche: FicheProjet, grille: Grille): Estimation {
       if (fiche.ouverture === "coulissant") c.pct("coulissant_fenetre");
       if (fiche.vitrage === "triple") c.pct("triple_vitrage");
       if (fiche.couleurHorsBlanc) c.pct("couleur_hors_blanc");
+      if (fiche.petitsBois) c.fixe("petits_bois", ctx); // absent de la grille de test → « à chiffrer »
       if (fiche.depose) c.fixe("depose", ctx);
       if (fiche.voletRoulant) c.fixe("volet_roulant", ctx);
       break;

@@ -4,7 +4,8 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Famille, FicheProjet } from "@/lib/fiche/schema";
 import { LIBELLES } from "@/lib/fiche/schema";
-import { OPTIONS_FAMILLE, libelleChamp } from "@/lib/fiche/libelles";
+import { FINITIONS, OPTIONS_CHAMP, OPTIONS_FAMILLE, POIGNEES, TEINTES_FENETRE, libelleChamp, libelleOption } from "@/lib/fiche/libelles";
+import { finitionEffective } from "@/lib/fiche/schema";
 import type { Question, ReponseIA, Tour } from "@/lib/ia/types";
 import type { EstimationClient } from "@/lib/prix/client";
 import type { Creneau } from "@/lib/hubspot";
@@ -18,6 +19,18 @@ type Etape = "accueil" | "questions" | "configurateur" | "contact" | "estimation
 type ReponseApi = ReponseIA & { mode?: string };
 
 const euros = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " €";
+
+/** Les choix de style du client, en clair, pour le récapitulatif de l'estimation. */
+function recapStyle(fiche: FicheProjet): string[] {
+  const libelle = (champ: string, valeur: unknown) => OPTIONS_CHAMP[champ]?.find((o) => o.valeur === valeur)?.libelle;
+  if (fiche.famille === "fenetre") {
+    return [libelle("materiau", fiche.materiau), fiche.materiau !== "bois" ? TEINTES_FENETRE[fiche.teinte].libelle : undefined, libelle("ouverture", fiche.ouverture), libelle("vitrage", fiche.vitrage) && `${libelle("vitrage", fiche.vitrage)} vitrage`].filter((x): x is string => Boolean(x));
+  }
+  const style = [FINITIONS[finitionEffective(fiche.gamme, fiche.finition)].libelle, POIGNEES[fiche.poignees].libelle];
+  if (fiche.famille === "cuisine") style.push(`crédence ${libelle("credence", fiche.credence)?.toLowerCase()}`);
+  else style.push(libelle("amenagement", fiche.amenagement) ?? "");
+  return style.filter(Boolean);
+}
 
 export default function Simulateur() {
   const [etape, setEtape] = useState<Etape>("accueil");
@@ -163,10 +176,10 @@ export default function Simulateur() {
   /* ---------------------------------------------------------- rendu */
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-6 sm:px-6">
-      <header className="mb-6 flex items-center justify-between">
+      <header className="mb-5 flex flex-col gap-2 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-[#8a5a2b]">Atelier Kyka · Porto</div>
-          <h1 className="text-xl font-semibold text-stone-900">Simulateur de menuiserie sur mesure</h1>
+          <h1 className="text-lg font-semibold leading-tight text-stone-900 sm:text-xl">Simulateur de menuiserie sur mesure</h1>
         </div>
         <Etapes etape={etape} />
       </header>
@@ -193,7 +206,7 @@ export default function Simulateur() {
             />
             <div className="mt-3 flex flex-wrap gap-2">
               {OPTIONS_FAMILLE.map((f) => (
-                <button key={f.valeur} type="button" onClick={() => setTexte(f.exemple)} className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-700 hover:border-[#8a5a2b] hover:text-[#8a5a2b]">
+                <button key={f.valeur} type="button" onClick={() => setTexte(f.exemple)} className="max-w-full truncate rounded-full border border-stone-300 bg-white px-3 py-1.5 text-left text-sm text-stone-700 hover:border-[#8a5a2b] hover:text-[#8a5a2b]">
                   {f.exemple.length > 48 ? f.exemple.slice(0, 46) + "…" : f.exemple}
                 </button>
               ))}
@@ -257,12 +270,20 @@ export default function Simulateur() {
       )}
 
       {(etape === "configurateur" || etape === "contact" || etape === "estimation") && fiche && (
-        <section className="grid flex-1 gap-6 lg:grid-cols-[1fr_360px]">
-          <div className="relative h-[52vh] min-h-[360px] overflow-hidden rounded-3xl border border-stone-200 bg-[#f7f4ef] shadow-inner lg:h-auto lg:min-h-[560px]">
+        <section className="grid flex-1 gap-4 sm:gap-6 lg:grid-cols-[1fr_380px]">
+          {/* Sur téléphone la 3D reste collée en haut pendant qu'on fait défiler les réglages : chaque changement se voit. */}
+          <div
+            className={`relative h-[42vh] min-h-[300px] self-start overflow-hidden rounded-3xl border border-stone-200 bg-[#f7f4ef] shadow-inner lg:sticky lg:top-4 lg:h-[calc(100vh-7rem)] lg:max-h-[760px] lg:min-h-[480px] ${
+              etape === "configurateur" ? "max-lg:sticky max-lg:top-0 max-lg:z-10 max-lg:rounded-t-xl" : ""
+            }`}
+          >
             <Scene3D fiche={fiche} onReady={onSceneReady} />
-            <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-white/80 px-3 py-1 text-xs text-stone-600 backdrop-blur">{LIBELLES[fiche.famille]} · glissez pour tourner la vue</div>
+            <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-white/80 px-3 py-1 text-xs text-stone-600 backdrop-blur">
+              <span className="lg:hidden">{LIBELLES[fiche.famille]}</span>
+              <span className="hidden lg:inline">{LIBELLES[fiche.famille]} · glissez pour tourner la vue</span>
+            </div>
             {fiche.defautsAppliques.length > 0 && (
-              <div className="pointer-events-none absolute bottom-4 left-4 rounded-full bg-amber-50/90 px-3 py-1 text-xs text-amber-800 backdrop-blur">Valeurs standard appliquées : {fiche.defautsAppliques.map(libelleChamp).join(", ")}</div>
+              <div className="pointer-events-none absolute bottom-4 left-4 max-w-[calc(100%-2rem)] truncate rounded-full bg-amber-50/90 px-3 py-1 text-xs text-amber-800 backdrop-blur">Valeurs standard appliquées : {fiche.defautsAppliques.map(libelleChamp).join(", ")}</div>
             )}
           </div>
 
@@ -275,7 +296,7 @@ export default function Simulateur() {
                 <button type="button" onClick={() => setEtape("contact")} className="mt-6 w-full rounded-full bg-[#8a5a2b] px-6 py-3 font-medium text-white hover:bg-[#75491f]">
                   Voir mon estimation
                 </button>
-                {estimation && estimation.optionsNonChiffrees.length > 0 && <p className="mt-3 text-xs text-stone-400">Non compris dans l’estimation : {estimation.optionsNonChiffrees.join(", ")}.</p>}
+                {estimation && estimation.optionsNonChiffrees.length > 0 && <p className="mt-3 text-xs text-stone-400">Chiffré lors de la visite : {estimation.optionsNonChiffrees.map(libelleOption).join(", ")}.</p>}
               </>
             )}
 
@@ -309,6 +330,7 @@ export default function Simulateur() {
                   {estimation.regles.tvaIncluse ? "TTC" : "HT"}
                   {estimation.regles.poseIncluse ? ", pose incluse" : ", hors pose"} · valable {estimation.regles.validiteJours} jours · hors visite technique
                 </div>
+                <p className="mt-3 text-sm text-stone-700">{recapStyle(fiche).join(" · ")}</p>
                 {/* Ce qui est compris, sans les montants : la grille reste à l'atelier. */}
                 <div className="mt-5 text-xs uppercase tracking-wider text-stone-500">Compris dans cette estimation</div>
                 <ul className="mt-2 divide-y divide-stone-100 text-sm">
@@ -321,7 +343,7 @@ export default function Simulateur() {
                   {estimation.quantite > 1 && <Ligne libelle={`${estimation.quantite} exemplaires`} detail="" />}
                   {estimation.minimumApplique && <Ligne libelle="Minimum de commande appliqué" detail="" />}
                 </ul>
-                {estimation.optionsNonChiffrees.length > 0 && <p className="mt-3 text-xs text-stone-500">À chiffrer lors de la visite : {estimation.optionsNonChiffrees.join(", ")}.</p>}
+                {estimation.optionsNonChiffrees.length > 0 && <p className="mt-3 text-xs text-stone-500">À chiffrer lors de la visite : {estimation.optionsNonChiffrees.map(libelleOption).join(", ")}.</p>}
                 <div className="mt-6 space-y-3">
                   {rappel === "fait" ? (
                     <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
