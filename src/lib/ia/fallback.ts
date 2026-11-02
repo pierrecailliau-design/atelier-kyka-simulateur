@@ -17,7 +17,11 @@ function detecterFamille(t: string): Famille | undefined {
   if (/fenetre|baie vitree|chassis|velux/.test(t)) return "fenetre";
   if (/cuisine/.test(t)) return "cuisine";
   if (/placard/.test(t)) return "placard";
-  if (/dressing|armoire|penderie|rangement/.test(t)) return "dressing";
+  // un rangement sous pente ou sous escalier est un placard, quel que soit le mot employé
+  if (/sous.?pente|sous.?escalier|mansard|combles|sous les toits|rampant|soupente/.test(t)) return "placard";
+  if (/dressing|armoire|penderie/.test(t)) return "dressing";
+  if (/biblio|etagere|rayonnage|niche|meuble ouvert/.test(t)) return "placard";
+  if (/rangement/.test(t)) return "dressing";
   return undefined;
 }
 
@@ -33,7 +37,9 @@ const enMetres = (brut: string, unite?: string) => {
  * Extrait les longueurs du texte, converties en mètres, dans l'ordre où elles apparaissent,
  * plus celles qui sont nommées (« 40 de profondeur », « 130 de haut »).
  */
-function dimensions(t: string): { ordre: number[]; nommees: Partial<Record<"largeur" | "hauteur" | "profondeur", number>> } {
+type Nommees = Partial<Record<"largeur" | "hauteur" | "profondeur" | "hauteurBasse", number>>;
+
+function dimensions(t: string): { ordre: number[]; nommees: Nommees } {
   const trouvees: { index: number; valeur: number }[] = [];
   const pris = new Set<number>();
   const ajouter = (index: number, valeur: number) => {
@@ -50,12 +56,13 @@ function dimensions(t: string): { ordre: number[]; nommees: Partial<Record<"larg
     ajouter(m.index, enMetres(m[1], m[2] ?? m[4]));
     ajouter(m.index + m[0].lastIndexOf(m[3]), enMetres(m[3], m[4] ?? m[2]));
   }
-  // dimensions nommées : « 40 de profondeur », « 130 de haut », « 2m de large »
-  const nommees: Partial<Record<"largeur" | "hauteur" | "profondeur", number>> = {};
-  for (const m of t.matchAll(/(\d+(?:[.,]\d+)?)\s*(cm|mm|m)?\s*(?:\d{1,2}\s*)?de\s+(large|largeur|long|longueur|haut|hauteur|profondeur|prof)\b/g)) {
+  // dimensions nommées : « 40 de profondeur », « 130 de haut », « 2m de large », « 1,90 m au plus haut », « 1 m au point bas »
+  const nommees: Nommees = {};
+  for (const m of t.matchAll(/(\d+(?:[.,]\d+)?)\s*(cm|mm|m)?\s*(?:\d{1,2}\s*)?(?:de\s+(large|largeur|long|longueur|haut|hauteur|profondeur|prof)\b|(?:au|le|du)?\s*(?:point\s+(?:le\s+)?plus\s+|plus\s+|point\s+)(haut|bas)\b)/g)) {
     const precedent = trouvees.find((d) => d.index === m.index);
     const valeur = precedent ? precedent.valeur : enMetres(m[1], m[2]);
-    const cle = /larg|long/.test(m[3]) ? "largeur" : /haut/.test(m[3]) ? "hauteur" : "profondeur";
+    const mot = m[3] ?? m[4];
+    const cle = mot === "bas" ? "hauteurBasse" : /larg|long/.test(mot) ? "largeur" : /haut/.test(mot) ? "hauteur" : "profondeur";
     nommees[cle] = valeur;
     if (!precedent) ajouter(m.index, valeur);
   }
@@ -106,18 +113,28 @@ export function extraireHeuristique(texte: string, familleChoisie?: Famille): Re
         brut.profondeurM = 0.6;
         brut.defautsAppliques = ["profondeurM"];
       }
-      const porte = /coulissant/.test(t) ? "coulissant" : /pliant/.test(t) ? "pliant" : /battant/.test(t) ? "battant" : /sans porte|ouvert/.test(t) ? "ouvert" : undefined;
+      const bibliotheque = /biblio|rayonnage|etageres? ouvertes?|meuble ouvert|niche/.test(t);
+      const porte = /coulissant/.test(t) ? "coulissant" : /pliant/.test(t) ? "pliant" : /battant/.test(t) ? "battant" : /sans porte|ouvert|biblio|rayonnage/.test(t) ? "ouvert" : undefined;
       if (/penderie seule|que de la penderie|surtout (de la )?penderie|tout en penderie/.test(t)) brut.amenagement = "penderie";
-      if (/que des etageres|surtout des etageres|tout en etageres/.test(t)) brut.amenagement = "etageres";
+      if (bibliotheque || /que des etageres|surtout des etageres|tout en etageres/.test(t)) brut.amenagement = "etageres";
       if (famille === "dressing") {
         if (porte === "pliant") brut.facade = "battant";
         else if (porte) brut.facade = porte;
         if (/led|eclairage|lumiere/.test(t)) brut.eclairageLed = true;
         if (/miroir/.test(t)) brut.miroirPortes = 1;
       } else {
-        if (porte && porte !== "ouvert") brut.portes = porte;
-        if (/sous.?pente|combles|mansard/.test(t)) brut.configuration = "sous_pente";
+        if (porte) brut.portes = porte;
+        if (/sous.?pente|combles|mansard|sous les toits|rampant|soupente/.test(t)) brut.configuration = "sous_pente";
         else if (/sous.?escalier/.test(t)) brut.configuration = "sous_escalier";
+        if (brut.configuration) {
+          // côté bas de la pente : « la pente est à gauche », « ça descend vers la droite », « côté gauche »
+          if (/gauche/.test(t) && !/droite/.test(t)) brut.penteCote = "gauche";
+          else if (/droite/.test(t) && !/gauche/.test(t)) brut.penteCote = "droite";
+          // hauteur au point bas : « 1 m au plus bas » (lu par dimensions), « point bas 90 cm », « descend à 1,10 m »
+          const bas = t.match(/(?:point bas|descend (?:a|jusqu'a))\s*(?:de |a )?(\d+(?:[.,]\d+)?)\s*(cm|m)?/);
+          if (nommees.hauteurBasse) brut.hauteurBasseM = nommees.hauteurBasse;
+          else if (bas) brut.hauteurBasseM = enMetres(bas[1], bas[2]);
+        }
       }
       break;
     }

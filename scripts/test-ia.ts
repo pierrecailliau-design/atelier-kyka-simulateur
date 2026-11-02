@@ -1,11 +1,11 @@
 /**
- * Test de lecture IA : 30 phrases de clients réalistes → fiche ou questions, comparées à l'attendu.
+ * Test de lecture IA : 37 phrases de clients réalistes → fiche ou questions, comparées à l'attendu.
  *
  *   npm run test:ia            # avec ANTHROPIC_API_KEY dans .env.local → Claude ; sinon mode heuristique
  *   npm run test:ia -- --heuristique   # force le mode sans IA pour comparer
  *
  * Imprime un tableau et un score, et écrit scripts/resultats-ia.md (à coller dans la conversation pour analyse).
- * Critère de réussite retenu au cadrage : 85 % de phrases justes (29 sur 34), sans question inutile.
+ * Critère de réussite retenu au cadrage : 85 % de phrases justes (32 sur 37), sans question inutile.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -50,6 +50,10 @@ const CAS: { phrase: string; attendu: Attendu }[] = [
   { phrase: "Placard d'entrée 120 cm sur 250 cm, 40 de profondeur, portes pliantes, en chêne", attendu: { statut: "fiche", famille: "placard", champs: { largeurM: 1.2, hauteurM: 2.5, profondeurM: 0.4, portes: "pliant", gamme: "premium" } } },
   { phrase: "un placard de 1m50 avec 3 tiroirs, portes battantes", attendu: { statut: "questions", famille: "placard", champs: { largeurM: 1.5, tiroirs: 3, portes: "battant" } } },
   { phrase: "Placard mural standard 2 m de large, 2,50 m de haut, laqué", attendu: { statut: "questions", famille: "placard", champs: { largeurM: 2, hauteurM: 2.5, gamme: "confort" }, questions: ["portes"] } },
+  // --- bibliothèque / sous pente (retour de Pierre du 02/11 : appartement mansardé, bibliothèque sans porte, pente à gauche)
+  { phrase: "Dans mon appartement mansardé je voudrais une bibliothèque sous la pente du toit, 2,20 m de large, 1,80 m au plus haut et 1 m au plus bas, la pente est à gauche, 40 cm de profondeur, sans porte, en chêne", attendu: { statut: "fiche", famille: "placard", champs: { largeurM: 2.2, hauteurM: 1.8, hauteurBasseM: 1, profondeurM: 0.4, configuration: "sous_pente", penteCote: "gauche", portes: "ouvert", amenagement: "etageres", gamme: "premium" } } },
+  { phrase: "une bibliotheque murale 3m de long 2m40 de haut 35 de profondeur, laquée blanche, sans portes", attendu: { statut: "fiche", famille: "placard", champs: { largeurM: 3, hauteurM: 2.4, profondeurM: 0.35, portes: "ouvert", amenagement: "etageres", gamme: "confort" } } },
+  { phrase: "Rangement sous escalier 2,5 m de long, 2 m au point haut, portes battantes mélaminé blanc, le bas de l'escalier est à droite", attendu: { statut: "fiche", famille: "placard", champs: { largeurM: 2.5, hauteurM: 2, configuration: "sous_escalier", penteCote: "droite", portes: "battant", gamme: "essentiel" } } },
   // --- cuisine
   { phrase: "Une cuisine en L, 3 m de meubles bas, 2 m de meubles hauts, plan de travail en quartz, finition laquée", attendu: { statut: "fiche", famille: "cuisine", champs: { implantation: "L", longueurBasM: 3, longueurHautM: 2, planTravail: "quartz", gamme: "confort" } } },
   { phrase: "cuisine linéaire de 4 mètres de meubles bas sans meubles hauts, plan stratifié, mélaminé, 2 colonnes", attendu: { statut: "fiche", famille: "cuisine", champs: { implantation: "lineaire", longueurBasM: 4, longueurHautM: 0, planTravail: "stratifie", gamme: "essentiel", colonnes: 2 } } },

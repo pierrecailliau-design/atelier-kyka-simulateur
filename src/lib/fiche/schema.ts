@@ -84,8 +84,13 @@ export const FichePlacard = z.object({
   hauteurM: z.number().min(0.6).max(3.5),
   profondeurM: z.number().min(0.3).max(1),
   gamme: Gamme,
-  portes: z.enum(["battant", "coulissant", "pliant"]),
+  /** « ouvert » = sans portes : bibliothèque, étagères ouvertes, niche. */
+  portes: z.enum(["battant", "coulissant", "pliant", "ouvert"]),
   configuration: z.enum(["standard", "sous_pente", "sous_escalier"]).default("standard"),
+  /** Sous pente / sous escalier : côté où le dessus est le plus bas, vu de face. */
+  penteCote: z.enum(["droite", "gauche"]).default("droite"),
+  /** Sous pente / sous escalier : hauteur au point bas, en mètres (absente = proportion standard). hauteurM reste la hauteur au point haut. */
+  hauteurBasseM: z.number().min(0.3).max(3.5).optional(),
   etageresSupplementaires: z.number().int().min(0).max(20).default(0),
   tiroirs: z.number().int().min(0).max(20).default(0),
   penderie: z.boolean().default(false),
@@ -165,7 +170,39 @@ export function normaliser(brut: Record<string, unknown>): Record<string, unknow
   if (typeof f.finition === "string" && typeof f.gamme === "string" && !FINITIONS_PAR_GAMME[f.gamme as Gamme]?.includes(f.finition as Finition)) {
     delete f.finition;
   }
+  if (f.famille === "placard") {
+    // une hauteur au point bas n'a de sens que sous une pente, et en dessous de la hauteur au point haut
+    if (f.configuration === "standard" || f.configuration === undefined) delete f.hauteurBasseM;
+    if (typeof f.hauteurBasseM === "number" && typeof f.hauteurM === "number" && f.hauteurBasseM >= f.hauteurM - 0.05) delete f.hauteurBasseM;
+    // une bibliothèque sans portes est faite d'étagères, sauf demande contraire
+    if (f.portes === "ouvert" && f.amenagement === undefined) f.amenagement = "etageres";
+  }
   return f;
+}
+
+/**
+ * Hauteur au point bas d'un placard sous pente (douce) ou sous escalier (raide) quand le client ne l'a pas donnée :
+ * proportion standard à partir de la hauteur au point haut et de la largeur. Partagée par la 3D et les curseurs.
+ */
+export function hauteurBasseStandard(configuration: FichePlacard["configuration"], hauteurM: number, largeurM: number): number {
+  const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+  if (configuration === "sous_escalier") return clamp(hauteurM - largeurM * 0.7, 0.75, hauteurM * 0.8);
+  if (configuration === "sous_pente") return clamp(hauteurM - largeurM * 0.5, 1.0, hauteurM * 0.85);
+  return hauteurM;
+}
+
+/** Hauteur au point bas effective : celle du client si elle est cohérente, sinon la proportion standard. */
+export const hauteurBasseEffective = (fiche: FichePlacard): number => {
+  const standard = hauteurBasseStandard(fiche.configuration, fiche.hauteurM, fiche.largeurM);
+  if (fiche.configuration === "standard" || fiche.hauteurBasseM === undefined) return standard;
+  return Math.min(fiche.hauteurM - 0.05, Math.max(0.3, fiche.hauteurBasseM));
+};
+
+/** Titre du projet pour le client et HubSpot : un placard sans portes garni d'étagères, c'est une bibliothèque. */
+export function libelleProjet(fiche: FicheProjet): string {
+  if (fiche.famille === "placard" && fiche.portes === "ouvert") return fiche.amenagement === "etageres" ? "Bibliothèque" : "Rangement ouvert";
+  if (fiche.famille === "dressing" && fiche.facade === "ouvert") return "Dressing ouvert";
+  return LIBELLES[fiche.famille];
 }
 
 /** Finitions autorisées par gamme (les libellés et couleurs sont dans libelles.ts). */

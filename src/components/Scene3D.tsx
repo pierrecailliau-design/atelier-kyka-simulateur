@@ -10,7 +10,7 @@ import { ContactShadows, Environment, Lightformer, OrbitControls, RoundedBox, So
 import { easing } from "maath";
 import * as THREE from "three";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { finitionEffective, type FacadeStyle, type FicheCuisine, type FicheDressing, type FicheFenetre, type FichePlacard, type FicheProjet, type Finition as CodeFinition, type Gamme, type Interieur, type Poignees } from "@/lib/fiche/schema";
+import { finitionEffective, hauteurBasseEffective, type FacadeStyle, type FicheCuisine, type FicheDressing, type FicheFenetre, type FichePlacard, type FicheProjet, type Finition as CodeFinition, type Gamme, type Interieur, type Poignees } from "@/lib/fiche/schema";
 import { FINITIONS, POIGNEES, TEINTES_FENETRE } from "@/lib/fiche/libelles";
 const E = 0.019; // épaisseur de panneau
 const ACCENT = "#8a5a2b";
@@ -443,6 +443,40 @@ function PileLinge({ position, profondeur }: { position: [number, number, number
   );
 }
 
+/** Rangée de livres posés sur une étagère : dos de couleurs sourdes, hauteurs et épaisseurs variées (déterministes). */
+const COULEURS_LIVRES = ["#8b5e3c", "#3f4e5e", "#a9403a", "#5b6b4a", "#c7b28a", "#2f2f33", "#7a6a8f", "#b0623a", "#e3dccc", "#466b73"];
+
+/** Rangée de livres déterministe (même graine → mêmes livres), calculée hors rendu. */
+function rangeeDeLivres(graine: number, largeur: number, profondeur: number, hauteurDispo: number) {
+  let s = graine * 9301 + 49297;
+  const alea = () => ((s = (s * 9301 + 49297) % 233280) / 233280);
+  const dispo = largeur - 0.06;
+  const remplissage = 0.55 + alea() * 0.35; // la rangée n'est pas toujours pleine
+  const liste: { x: number; ep: number; h: number; c: string; prof: number; penche: number }[] = [];
+  let x = -dispo / 2;
+  while (x < -dispo / 2 + dispo * remplissage) {
+    const ep = 0.018 + alea() * 0.03;
+    const h = Math.min(hauteurDispo - 0.03, 0.17 + alea() * 0.1);
+    liste.push({ x: x + ep / 2, ep, h, c: COULEURS_LIVRES[Math.floor(alea() * COULEURS_LIVRES.length)], prof: Math.min(profondeur - 0.1, 0.15 + alea() * 0.07), penche: alea() < 0.06 ? 0.12 : 0 });
+    x += ep + 0.001;
+  }
+  return liste;
+}
+
+function Livres({ cx, y, largeur, profondeur, graine, hauteurDispo }: { cx: number; y: number; largeur: number; profondeur: number; graine: number; hauteurDispo: number }) {
+  const livres = useMemo(() => rangeeDeLivres(graine, largeur, profondeur, hauteurDispo), [largeur, profondeur, graine, hauteurDispo]);
+  return (
+    <group position={[cx, y, 0.02]}>
+      {livres.map((l, k) => (
+        <mesh key={k} position={[l.x, l.h / 2, 0]} rotation={[0, 0, l.penche]} castShadow>
+          <boxGeometry args={[l.ep, l.h, l.prof]} />
+          <meshStandardMaterial color={l.c} roughness={0.85} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 /* ------------------------------------------------------------------ dressing / placard */
 function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
   const W = fiche.largeurM;
@@ -455,14 +489,19 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
   const tiroirs = fiche.tiroirs;
   const configuration = fiche.famille === "placard" ? fiche.configuration : "standard";
   const amenagement = fiche.amenagement;
+  // bibliothèque : placard sans portes garni d'étagères → des livres plutôt que du linge
+  const bibliotheque = fiche.famille === "placard" && fiche.portes === "ouvert" && amenagement === "etageres";
+  // côté bas de la pente : le meuble est dessiné haut à gauche / bas à droite, puis retourné en miroir si le bas est à gauche
+  const miroirX = fiche.famille === "placard" && configuration !== "standard" && fiche.penteCote === "gauche";
 
-  // Pente du dessus : sous escalier (raide) ou sous pente (douce), haut à gauche, bas à droite.
+  // Pente du dessus : sous escalier (raide) ou sous pente (douce), haut à gauche, bas à droite ; hauteur au point bas
+  // donnée par le client ou proportion standard (hauteurBasseEffective).
+  const hBasse = fiche.famille === "placard" ? hauteurBasseEffective(fiche) : H;
   const pente = useMemo<Pente>(() => {
-    const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
-    const hMin = configuration === "sous_escalier" ? clamp(H - W * 0.7, 0.75, H * 0.8) : configuration === "sous_pente" ? clamp(H - W * 0.5, 1.0, H * 0.85) : H;
+    const hMin = configuration === "standard" ? H : hBasse;
     const active = configuration !== "standard" && hMin < H - 0.05;
     return { active, hMin, hauteurEn: (x: number) => (active ? H - (H - hMin) * ((x + W / 2) / W) : H) };
-  }, [configuration, H, W]);
+  }, [configuration, H, W, hBasse]);
 
   const n = Math.max(1, Math.round(W / 0.6));
   const sw = (W - 2 * E) / n;
@@ -508,12 +547,20 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
         }
       } else {
         if (dansSection > 0) elements.push(<Panneau key={`tabtir${i}`} position={[cx, hautTiroirs + 0.02, 0]} taille={[sw - E, E, P - 2 * E]} {...dedans} />);
-        const nb = Math.max(2, Math.round((hSec - hautTiroirs) / 0.36));
+        // une bibliothèque a des étagères plus serrées (hauteur de livre ≈ 32 cm) qu'un placard à linge
+        const nb = Math.max(2, Math.round((hSec - hautTiroirs) / (bibliotheque ? 0.32 : 0.36)));
         const pas = (hSec - E - hautTiroirs) / nb;
-        for (let k = 1; k < nb; k++) {
+        for (let k = 0; k < nb; k++) {
           const y = hautTiroirs + pas * k;
-          elements.push(<Panneau key={`etag${i}-${k}`} position={[cx, y, 0]} taille={[sw - E, E, P - 2 * E]} {...dedans} />);
-          if (k % 2 === 1 && hSec - y > 0.2) elements.push(<PileLinge key={`pile${i}-${k}`} position={[cx - (k % 4 === 1 ? 0.05 : -0.05), y + E / 2, -0.02]} profondeur={P} />);
+          if (k > 0) elements.push(<Panneau key={`etag${i}-${k}`} position={[cx, y, 0]} taille={[sw - E, E, P - 2 * E]} {...dedans} />);
+          else if (!bibliotheque || dansSection > 0) continue; // le bas du caisson sert d'étagère seulement pour une bibliothèque
+          if (bibliotheque) {
+            // hauteur libre au-dessus de l'étagère, au point le plus bas du dessus (sous une pente)
+            const libre = Math.min(pas, hSec - y - E);
+            if (libre > 0.2) elements.push(<Livres key={`livres${i}-${k}`} cx={cx} y={y + (k > 0 ? E / 2 : 0)} largeur={sw - E} profondeur={P} graine={i * 7 + k} hauteurDispo={libre} />);
+          } else if (k % 2 === 1 && hSec - y > 0.2) {
+            elements.push(<PileLinge key={`pile${i}-${k}`} position={[cx - (k % 4 === 1 ? 0.05 : -0.05), y + E / 2, -0.02]} profondeur={P} />);
+          }
         }
       }
       for (let t = 0; t < dansSection; t++) {
@@ -523,7 +570,7 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
     }
     return elements;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [W, H, P, n, sw, gamme, tiroirs, pente, amenagement]);
+  }, [W, H, P, n, sw, gamme, tiroirs, pente, amenagement, bibliotheque]);
 
   const facades = useMemo(() => {
     const elements: React.ReactNode[] = [];
@@ -585,7 +632,8 @@ function Rangement({ fiche }: { fiche: FicheDressing | FichePlacard }) {
   );
 
   return (
-    <group>
+    // scale x = -1 : pente basse à gauche (three.js inverse la face avant des mailles pour un déterminant négatif, le rendu reste correct)
+    <group scale={[miroirX ? -1 : 1, 1, 1]}>
       {/* caisson */}
       <Panneau position={[-W / 2 + E / 2, H / 2, zCaisson]} taille={[E, H, profCaisson]} {...finition} />
       <Panneau position={[W / 2 - E / 2, pente.hMin / 2, zCaisson]} taille={[E, pente.hMin, profCaisson]} {...finition} />
@@ -1141,7 +1189,7 @@ function aDesOuvrants(fiche: FicheProjet): boolean {
     case "dressing":
       return fiche.facade !== "ouvert" || fiche.tiroirs > 0;
     case "placard":
-      return true;
+      return fiche.portes !== "ouvert" || fiche.tiroirs > 0;
     case "cuisine":
       return true;
     case "fenetre":

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FicheProjet } from "../fiche/schema";
+import { FicheProjet, libelleProjet, normaliser } from "../fiche/schema";
 import { grilleDeTest } from "../grille/fixture";
 import { GrilleInvalide, parseOptions, parseRegles } from "../grille/parse";
 import { estimer } from "./engine";
@@ -68,6 +68,35 @@ describe("moteur de prix — exemples du cadrage", () => {
     expect(e.prixCalcule).toBe(1242);
     expect(e.fourchette).toEqual({ basse: 1060, haute: 1430 });
     expect(e.optionsNonChiffrees).toEqual([]);
+  });
+
+  it("bibliothèque (placard sans portes) 2,20 m Premium sous pente → base + 15 %, rien de non chiffré, étagères par défaut", () => {
+    const fiche = FicheProjet.parse(
+      normaliser({
+        famille: "placard",
+        largeurM: 2.2,
+        hauteurM: 1.8,
+        hauteurBasseM: 1,
+        penteCote: "gauche",
+        profondeurM: 0.4,
+        gamme: "premium",
+        portes: "ouvert",
+        configuration: "sous_pente",
+      }),
+    );
+    expect(fiche.famille === "placard" && fiche.amenagement).toBe("etageres");
+    expect(libelleProjet(fiche)).toBe("Bibliothèque");
+    const e = estimer(fiche, grille);
+    expect(e.base.montant).toBe(2090); // 2,2 ml × 950 €
+    expect(e.optionsFixes).toEqual([]);
+    expect(e.pourcentages.map((p) => p.code)).toEqual(["sous_pente"]);
+    expect(e.optionsNonChiffrees).toEqual([]);
+  });
+
+  it("hauteur au point bas : retirée si le placard est standard ou si elle dépasse la hauteur", () => {
+    expect(normaliser({ famille: "placard", configuration: "standard", hauteurBasseM: 1 }).hauteurBasseM).toBeUndefined();
+    expect(normaliser({ famille: "placard", configuration: "sous_pente", hauteurM: 1.8, hauteurBasseM: 1.8 }).hauteurBasseM).toBeUndefined();
+    expect(normaliser({ famille: "placard", configuration: "sous_pente", hauteurM: 1.8, hauteurBasseM: 1 }).hauteurBasseM).toBe(1);
   });
 
   it("cuisine 3 m bas + 2 m hauts, Confort, stratifié, 1 colonne → 6 360 €", () => {

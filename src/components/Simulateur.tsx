@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Famille, FicheProjet } from "@/lib/fiche/schema";
-import { LIBELLES } from "@/lib/fiche/schema";
+import { libelleProjet } from "@/lib/fiche/schema";
 import { FINITIONS, OPTIONS_CHAMP, OPTIONS_FAMILLE, POIGNEES, TEINTES_FENETRE, libelleChamp, libelleOption } from "@/lib/fiche/libelles";
 import { finitionEffective } from "@/lib/fiche/schema";
 import type { Question, ReponseIA, Tour } from "@/lib/ia/types";
@@ -279,8 +279,8 @@ export default function Simulateur() {
           >
             <Scene3D fiche={fiche} onReady={onSceneReady} />
             <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-white/80 px-3 py-1 text-xs text-stone-600 backdrop-blur">
-              <span className="lg:hidden">{LIBELLES[fiche.famille]}</span>
-              <span className="hidden lg:inline">{LIBELLES[fiche.famille]} · glissez pour tourner la vue</span>
+              <span className="lg:hidden">{libelleProjet(fiche)}</span>
+              <span className="hidden lg:inline">{libelleProjet(fiche)} · glissez pour tourner la vue</span>
             </div>
             {fiche.defautsAppliques.length > 0 && (
               <div className="pointer-events-none absolute bottom-4 left-4 max-w-[calc(100%-2rem)] truncate rounded-full bg-amber-50/90 px-3 py-1 text-xs text-amber-800 backdrop-blur">Valeurs standard appliquées : {fiche.defautsAppliques.map(libelleChamp).join(", ")}</div>

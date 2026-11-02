@@ -2,7 +2,7 @@
 
 /** Écran 3 : curseurs et sélecteurs reliés à la fiche. Chaque changement met à jour la 3D et le prix. */
 import { useState } from "react";
-import { finitionEffective, type FicheProjet } from "@/lib/fiche/schema";
+import { finitionEffective, hauteurBasseStandard, type FicheProjet } from "@/lib/fiche/schema";
 import { OPTIONS_CHAMP, TEINTES_FENETRE, optionsFinition } from "@/lib/fiche/libelles";
 
 type Props = { fiche: FicheProjet; onChange: (fiche: FicheProjet) => void };
@@ -170,13 +170,19 @@ export default function Controles({ fiche, onChange }: Props) {
           <Curseur label="Largeur" valeur={fiche.largeurM} min={0.4} max={6} onChange={(v) => maj({ largeurM: v })} />
           <Curseur label="Hauteur" valeur={fiche.hauteurM} min={0.6} max={3.2} onChange={(v) => maj({ hauteurM: v })} />
           <Curseur label="Profondeur" valeur={fiche.profondeurM} min={0.3} max={0.8} onChange={(v) => maj({ profondeurM: v })} />
-          <Choix label="Configuration" valeur={fiche.configuration} options={opt("configuration")} onChange={(v) => maj({ configuration: v })} />
+          <Choix label="Configuration" valeur={fiche.configuration} options={opt("configuration")} onChange={(v) => maj({ configuration: v, hauteurBasseM: v === "standard" ? undefined : fiche.hauteurBasseM })} />
+          {fiche.configuration !== "standard" && (
+            <>
+              <Choix label="Côté bas de la pente" valeur={fiche.penteCote} options={opt("penteCote")} onChange={(v) => maj({ penteCote: v })} />
+              <Curseur label="Hauteur au point bas" valeur={fiche.hauteurBasseM ?? hauteurBasseStandard(fiche.configuration, fiche.hauteurM, fiche.largeurM)} min={0.3} max={Math.max(0.35, fiche.hauteurM - 0.1)} onChange={(v) => maj({ hauteurBasseM: v })} />
+            </>
+          )}
           <Titre>Style</Titre>
           <Choix label="Gamme" valeur={fiche.gamme} options={opt("gamme")} onChange={(v) => maj({ gamme: v, finition: undefined })} />
           <Nuancier label="Finition" valeur={finitionEffective(fiche.gamme, fiche.finition)} options={optionsFinition(fiche.gamme)} onChange={(v) => maj({ finition: v })} />
           <Choix label="Portes" valeur={fiche.portes} options={opt("portes")} onChange={(v) => maj({ portes: v })} />
-          <Choix label="Style des portes" valeur={fiche.facadeStyle} options={opt("facadeStyle")} onChange={(v) => maj({ facadeStyle: v })} />
-          <Choix label="Poignées" valeur={fiche.poignees} options={opt("poignees")} onChange={(v) => maj({ poignees: v })} />
+          {fiche.portes !== "ouvert" && <Choix label="Style des portes" valeur={fiche.facadeStyle} options={opt("facadeStyle")} onChange={(v) => maj({ facadeStyle: v })} />}
+          {fiche.portes !== "ouvert" && <Choix label="Poignées" valeur={fiche.poignees} options={opt("poignees")} onChange={(v) => maj({ poignees: v })} />}
           <Titre>Intérieur</Titre>
           <Choix label="Aménagement" valeur={fiche.amenagement} options={opt("amenagement")} onChange={(v) => maj({ amenagement: v })} />
           <Choix label="Intérieur des caissons" valeur={fiche.interieur} options={opt("interieur")} onChange={(v) => maj({ interieur: v })} />

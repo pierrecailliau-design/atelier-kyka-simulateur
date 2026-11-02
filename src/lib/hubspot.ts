@@ -7,7 +7,7 @@
  * Variables : HUBSPOT_PRIVATE_APP_TOKEN, HUBSPOT_PIPELINE_ID (953151656),
  * HUBSPOT_STAGE_ESTIMATION_RECUE (1472120102), HUBSPOT_OWNER_ID (optionnel, qui reçoit les tâches).
  */
-import { LIBELLES, finitionEffective, type FicheProjet } from "./fiche/schema";
+import { LIBELLES, finitionEffective, libelleProjet, type FicheProjet } from "./fiche/schema";
 import { FINITIONS, OPTIONS_CHAMP, POIGNEES, TEINTES_FENETRE, libelleChamp } from "./fiche/libelles";
 import type { Estimation } from "./prix/engine";
 
@@ -100,7 +100,7 @@ export async function envoyerLead(contact: Contact, fiche: FicheProjet, estimati
   const dealstage = process.env.HUBSPOT_STAGE_ESTIMATION_RECUE ?? "1472120102";
 
   const contactId = await upsertContact(contact);
-  const titre = `${LIBELLES[fiche.famille]} — ${contact.prenom} (simulateur)`;
+  const titre = `${libelleProjet(fiche)} — ${contact.prenom} (simulateur)`;
   const deal = await appel<{ id?: string }>("/crm/v3/objects/deals", {
     method: "POST",
     body: JSON.stringify({
@@ -172,7 +172,7 @@ export async function joindreVisuel(dataUrl: string, ids: { dealId: string; cont
       body: JSON.stringify({
         properties: {
           hs_timestamp: new Date().toISOString(),
-          hs_note_body: `Visuel 3D du projet ${LIBELLES[fiche.famille].toLowerCase()} tel que configuré par le client sur le simulateur.`,
+          hs_note_body: `Visuel 3D du projet ${libelleProjet(fiche).toLowerCase()} tel que configuré par le client sur le simulateur.`,
           hs_attachment_ids: fichierId,
         },
         associations: [association(ids.dealId, ASSOC.noteVersDeal), association(ids.contactId, ASSOC.noteVersContact)],

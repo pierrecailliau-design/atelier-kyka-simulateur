@@ -70,6 +70,11 @@ class Calcul {
     return t;
   }
 
+  /** Vrai si la grille connaît cette option pour la famille, sans rien marquer comme non chiffré. */
+  existe(code: string): boolean {
+    return this.grille.options.some((o) => o.code === code && o.familles.includes(this.famille));
+  }
+
   private trouver(code: string): OptionTarif | undefined {
     const opt = this.grille.options.find((o) => o.code === code);
     if (!opt || !opt.familles.includes(this.famille)) {
@@ -188,6 +193,9 @@ export function estimer(fiche: FicheProjet, grille: Grille): Estimation {
       if (fiche.portes === "coulissant") c.fixe("portes_coulissantes", { ml });
       if (fiche.portes === "pliant") c.fixe("portes_pliantes", { ml });
       // Portes battantes : comprises dans le tarif de base du placard.
+      // Sans portes (bibliothèque) : même base ; la grille peut ajouter une option `sans_portes` (par_ml, montant négatif)
+      // pour faire une remise — on ne l'appelle que si elle existe, pour ne pas afficher « à chiffrer : sans portes ».
+      if (fiche.portes === "ouvert" && c.existe("sans_portes")) c.fixe("sans_portes", { ml });
       if (fiche.tiroirs > 0) c.fixe("tiroir", { ml, unites: fiche.tiroirs });
       if (fiche.etageresSupplementaires > 0) c.fixe("etagere_supplementaire", { ml, unites: fiche.etageresSupplementaires });
       if (fiche.penderie) c.fixe("penderie", { ml });
