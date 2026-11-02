@@ -25,7 +25,7 @@ Règles :
 - Dimensions en mètres dans la fiche (2,40 m → 2.4 ; 240 cm → 2.4).
 - Cuisine : les longueurs sont celles des meubles bas et des meubles hauts, l'électroménager est exclu. Fenêtre : largeur × hauteur d'une fenêtre, et la quantité.
 - Si la demande n'est pas de la menuiserie (ou pas l'une des quatre familles), réponds avec statut hors_sujet et explique gentiment ce que tu sais faire.
-- Réponds uniquement via l'outil repondre.`;
+- Réponds TOUJOURS et UNIQUEMENT en appelant l'outil repondre, jamais en texte libre, même pour une demande hors sujet ou incompréhensible (statut hors_sujet dans ce cas).`;
 
 const Options = z.array(z.object({ valeur: z.union([z.string(), z.number(), z.boolean()]), libelle: z.string() }));
 const QuestionSchema = z.object({
@@ -157,16 +157,34 @@ export async function extraireFiche(tours: Tour[], famille?: Famille): Promise<R
     famille ? `\n\nLe client a déjà choisi la famille : ${famille}.` : ""
   }`;
 
-  const reponse = await anthropic.messages.create({
-    model: MODELE,
-    max_tokens: 1500,
-    system: systeme,
-    tools: [OUTIL],
-    tool_choice: { type: "tool", name: "repondre" },
-    messages: tours.map((t) => ({ role: t.role, content: t.content })),
-  });
+  // Sonnet 5.5 n'accepte plus tool_choice « tool » / « any » (400) : on laisse « auto » et le système
+  // impose l'outil ; si le modèle répond quand même en texte, on le relance une fois.
+  const messages: Anthropic.MessageParam[] = tours.map((t) => ({ role: t.role, content: t.content }));
+  const appeler = (m: Anthropic.MessageParam[]) =>
+    anthropic.messages.create({
+      model: MODELE,
+      max_tokens: 1500,
+      system: systeme,
+      tools: [OUTIL],
+      tool_choice: { type: "auto", disable_parallel_tool_use: true },
+      messages: m,
+    });
 
-  const bloc = reponse.content.find((c) => c.type === "tool_use");
+  let reponse = await appeler(messages);
+  let bloc = reponse.content.find((c) => c.type === "tool_use");
+  if (!bloc) {
+    const texte = reponse.content
+      .filter((c): c is Anthropic.TextBlock => c.type === "text")
+      .map((c) => c.text)
+      .join("\n")
+      .trim();
+    reponse = await appeler([
+      ...messages,
+      { role: "assistant", content: texte || "(pas de réponse)" },
+      { role: "user", content: "Réponds maintenant uniquement en appelant l'outil repondre, sans aucun texte." },
+    ]);
+    bloc = reponse.content.find((c) => c.type === "tool_use");
+  }
   if (!bloc || bloc.type !== "tool_use") throw new Error("Réponse IA sans outil");
   const sortie = bloc.input as Record<string, unknown>;
   const message = typeof sortie.message === "string" ? sortie.message : "";

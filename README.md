@@ -17,7 +17,8 @@ Site où un client décrit son projet de menuiserie (dressing, placard, cuisine,
 - [x] Mobile : 3D collée en haut pendant le réglage, cadrage de caméra adapté au format de l'écran, en-tête et pastilles revus
 - [x] Cuisine v6 : caissons creux (côtés, fond, dos, étagères, joues de finition), contenu visible quand on ouvre (casseroles, assiettes, verres, bols), cuve inox encastrée dans un plan percé, plaque, colonnes creuses à étagères et four, poignées en haut des bas / en bas des hauts. Personnalisation : façades lisses ou à cadre (shaker), intérieur des caissons blanc ou assorti, hauteur du plan de travail au centimètre.
 - [x] Favicon, icône iOS, image d'aperçu pour le partage (`src/app/icon.svg`, `apple-icon.png`, `opengraph-image.png`), métadonnées Open Graph (`NEXT_PUBLIC_SITE_URL`)
-- [x] `npm run test:ia` : 30 phrases clients avec attendus → score ; `--heuristique` pour le mode sans clé (23/30 ; l'objectif 25/30 se mesure avec Claude)
+- [x] `npm run test:ia` : 34 phrases clients avec attendus → score ; `--heuristique` pour le mode sans clé (27/34 ; l'objectif 85 % se mesure avec Claude)
+- [x] Appel IA compatible Sonnet 5.5 : `tool_choice` « auto » (le forçage « tool » renvoie 400 sur ce modèle) + relance si le modèle répond en texte ; en cas d'échec, repli heuristique journalisé (« IA indisponible, bascule heuristique » dans les logs Vercel)
 - [ ] E-mail de récapitulatif au client (workflow HubSpot, déclenché à la création de la transaction)
 - [ ] Cloudflare Turnstile si les robots passent la limite de débit
 
@@ -26,7 +27,7 @@ Site où un client décrit son projet de menuiserie (dressing, placard, cuisine,
 ```bash
 npm install
 npm test          # moteur de prix, HubSpot (simulé), limite de débit, estimation client — 27 tests
-npm run test:ia   # lecture IA sur 30 phrases (clé dans .env.local) ; écrit scripts/resultats-ia.md
+npm run test:ia   # lecture IA sur 34 phrases (clé dans .env.local) ; écrit scripts/resultats-ia.md
 npm run dev       # http://localhost:3000
 ```
 
