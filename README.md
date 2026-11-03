@@ -19,6 +19,7 @@ Site où un client décrit son projet de menuiserie (dressing, placard, cuisine,
 - [x] Favicon, icône iOS, image d'aperçu pour le partage (`src/app/icon.svg`, `apple-icon.png`, `opengraph-image.png`), métadonnées Open Graph (`NEXT_PUBLIC_SITE_URL`)
 - [x] `npm run test:ia` : 37 phrases clients avec attendus → score ; `--heuristique` pour le mode sans clé (30/37 ; l'objectif 85 % se mesure avec Claude)
 - [x] Bibliothèque et sous pente (v8, retour de Pierre) : placard « sans portes » (bibliothèque, niche) dessiné en étagères garnies de livres, titre « Bibliothèque » pour le client et HubSpot ; côté bas de la pente (gauche / droite) et hauteur au point bas réglables ; l'IA et l'heuristique lisent « mansardé, sous les toits, combles, rampant » → sous pente, « bibliothèque, rayonnage, sans porte » → ouvert + étagères, « la pente est à gauche », « 1 m au plus bas ». Prix : même base qu'un placard battant ; ajouter une option `sans_portes` (par_ml, montant négatif) dans la grille pour faire une remise, le moteur l'applique si elle existe.
+- [x] Modification par écrit depuis la 3D (v9) : boîte « Dites-nous ce que vous voulez changer » au-dessus des réglages → `/api/fiche` `{fiche, demande}` → l'IA renvoie la fiche complète mise à jour (ne change que ce qui est demandé, pose une question si c'est ambigu, hors sujet sinon) ; sans IA, lecture heuristique appliquée par-dessus la fiche (« ajoute 2 tiroirs » = +2, « plus large » = +20 cm, « enlève les portes »). Chaque demande est journalisée dans le commentaire transmis à HubSpot (« Puis : … »).
 - [x] Appel IA compatible Sonnet 5.5 : `tool_choice` « auto » (le forçage « tool » renvoie 400 sur ce modèle) + relance si le modèle répond en texte ; en cas d'échec, repli heuristique journalisé (« IA indisponible, bascule heuristique » dans les logs Vercel)
 - [ ] E-mail de récapitulatif au client (workflow HubSpot, déclenché à la création de la transaction)
 - [ ] Cloudflare Turnstile si les robots passent la limite de débit
@@ -27,7 +28,7 @@ Site où un client décrit son projet de menuiserie (dressing, placard, cuisine,
 
 ```bash
 npm install
-npm test          # moteur de prix, HubSpot (simulé), limite de débit, estimation client — 27 tests
+npm test          # moteur de prix, HubSpot (simulé), limite de débit, estimation client, modification par écrit — 35 tests
 npm run test:ia   # lecture IA sur 37 phrases (clé dans .env.local) ; écrit scripts/resultats-ia.md
 npm run dev       # http://localhost:3000
 ```

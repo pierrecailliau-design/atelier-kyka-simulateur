@@ -3,7 +3,8 @@
  * Sert quand ANTHROPIC_API_KEY est absente (tests, local) ou si l'API est en panne.
  * Volontairement simple : tout ce qui n'est pas reconnu devient une question.
  */
-import type { Famille } from "../fiche/schema";
+import { DEFAUTS, type Famille, type FicheProjet } from "../fiche/schema";
+import { libelleChamp } from "../fiche/libelles";
 import { valider } from "./extraire";
 import type { ReponseIA } from "./types";
 
@@ -81,6 +82,48 @@ function gamme(t: string): string | undefined {
 }
 
 export function extraireHeuristique(texte: string, familleChoisie?: Famille): ReponseIA {
+  const { brut, famille } = lireBrut(texte, familleChoisie);
+  const resultat = valider(brut, famille ? "Voici ce que j'ai compris. Il me manque quelques précisions." : "Je n'ai pas reconnu le type de projet.");
+  if (resultat.statut === "fiche") resultat.message = "Voici votre projet. Ajustez-le à votre goût.";
+  return resultat;
+}
+
+/**
+ * Modification par écrit depuis la 3D, sans IA : on ne garde du texte que ce qui y est dit explicitement
+ * (pas les valeurs par défaut, pas le commentaire) et on l'applique par-dessus la fiche actuelle.
+ */
+export function modifierHeuristique(fiche: FicheProjet, demande: string): ReponseIA {
+  const t = norm(demande);
+  const autreFamille = detecterFamille(t);
+  const famille = autreFamille && autreFamille !== fiche.famille ? autreFamille : fiche.famille;
+  const { brut } = lireBrut(demande, famille);
+  const explicite: Record<string, unknown> = {};
+  const defauts = new Set(Array.isArray(brut.defautsAppliques) ? (brut.defautsAppliques as string[]) : []);
+  for (const [k, v] of Object.entries(brut)) {
+    if (k === "commentaire" || k === "defautsAppliques" || k === "famille" || v === undefined || defauts.has(k)) continue;
+    if (k === "teinte" && v === "blanc" && !/blanc/.test(t)) continue; // teinte posée par défaut, pas demandée
+    explicite[k] = v;
+  }
+  if (/sans porte|enleve[rz]? les portes|pas de porte|ouvert/.test(t)) explicite[famille === "dressing" ? "facade" : "portes"] = "ouvert";
+  // « ajoute 2 tiroirs » : en plus des tiroirs actuels, pas à la place
+  if (typeof explicite.tiroirs === "number" && /ajoute|rajoute|en plus|de plus/.test(t) && "tiroirs" in fiche) explicite.tiroirs = fiche.tiroirs + explicite.tiroirs;
+  const plus = t.match(/plus (grand|large|long|haut|profond|petit|bas|court)/);
+  if (plus && Object.keys(explicite).length === 0) {
+    const sens = /petit|bas|court/.test(plus[1]) ? -0.2 : 0.2;
+    const champ = /haut|bas/.test(plus[1]) ? "hauteurM" : /profond/.test(plus[1]) ? "profondeurM" : fiche.famille === "cuisine" ? "longueurBasM" : "largeurM";
+    const actuel = (fiche as unknown as Record<string, unknown>)[champ];
+    if (typeof actuel === "number") explicite[champ] = Math.round((actuel + sens) * 100) / 100;
+  }
+  if (Object.keys(explicite).length === 0) {
+    return { statut: "questions", message: "Je n'ai pas compris ce que vous voulez changer. Essayez par exemple « ajoute deux tiroirs » ou « portes coulissantes », ou utilisez les réglages.", famille: fiche.famille, questions: [], ficheProvisoire: fiche as unknown as Record<string, unknown> };
+  }
+  const base = famille === fiche.famille ? (fiche as unknown as Record<string, unknown>) : { ...DEFAUTS[famille] };
+  const resultat = valider({ ...base, ...explicite, famille, defautsAppliques: fiche.defautsAppliques.filter((d) => !(d in explicite)) }, "C'est noté, j'ai mis le dessin à jour.");
+  if (resultat.statut === "fiche") resultat.message = `C'est fait : ${Object.keys(explicite).map(libelleChamp).join(", ")}.`;
+  return resultat;
+}
+
+function lireBrut(texte: string, familleChoisie?: Famille): { brut: Record<string, unknown>; famille: Famille | undefined } {
   const t = norm(texte);
   const famille = familleChoisie ?? detecterFamille(t);
   const { ordre, nommees } = dimensions(t);
@@ -174,7 +217,5 @@ export function extraireHeuristique(texte: string, familleChoisie?: Famille): Re
   }
   if (quantite && famille !== "fenetre") brut.quantite = Number(quantite[1]);
 
-  const resultat = valider(brut, famille ? "Voici ce que j'ai compris. Il me manque quelques précisions." : "Je n'ai pas reconnu le type de projet.");
-  if (resultat.statut === "fiche") resultat.message = "Voici votre projet. Ajustez-le à votre goût.";
-  return resultat;
+  return { brut, famille };
 }

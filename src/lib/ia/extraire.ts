@@ -151,17 +151,41 @@ export function valider(brutInitial: Record<string, unknown>, message: string): 
   };
 }
 
+/** Consigne ajoutée quand le client, déjà devant sa 3D, demande un changement par écrit. */
+const MODIFICATION = `MODE MODIFICATION : le client a déjà une fiche projet complète (JSON ci-dessous) et demande un changement par écrit.
+- Renvoie statut fiche avec la fiche COMPLÈTE mise à jour : change uniquement ce que le client demande, garde tous les autres champs exactement tels quels (famille, dimensions, gamme, finition, options…).
+- « Plus grand / plus petit / plus haut » sans chiffre : ajuste de 20 cm. « Enlève les portes » → ouvert. Une teinte ou une essence → la finition, et la gamme qui va avec.
+- Si la demande est ambiguë, statut questions (une ou deux questions, ficheProvisoire = fiche actuelle).
+- Si le client décrit en fait un autre projet (autre famille), renvoie la nouvelle fiche, ou pose les questions manquantes.
+- Si la demande ne concerne pas le meuble (prix, délai, bonjour), statut hors_sujet avec une réponse courte et aimable, sans prix.
+- Le message au client dit en une phrase ce qui a été changé.`;
+
+function systemePour(famille?: Famille, modification = false): string {
+  return `${SYSTEME}\n\nSchéma JSON de la fiche projet :\n${SCHEMA_FICHE}${famille ? `\n\nLe client a déjà choisi la famille : ${famille}.` : ""}${modification ? `\n\n${MODIFICATION}` : ""}`;
+}
+
+/** Le client, devant sa 3D, demande un changement en texte libre : l'IA renvoie la fiche mise à jour. */
+export async function modifierFiche(fiche: FicheProjet, demande: string): Promise<ReponseIA> {
+  const message = `Fiche actuelle (JSON) :\n${JSON.stringify(fiche)}\n\nLe client demande maintenant : « ${demande.trim()} »`;
+  const reponse = await appelerOutil(systemePour(fiche.famille, true), [{ role: "user", content: message }], fiche.famille);
+  if (reponse.statut === "questions" && !reponse.ficheProvisoire) reponse.ficheProvisoire = fiche as unknown as Record<string, unknown>;
+  return reponse;
+}
+
 export async function extraireFiche(tours: Tour[], famille?: Famille): Promise<ReponseIA> {
+  return appelerOutil(
+    systemePour(famille),
+    tours.map((t) => ({ role: t.role, content: t.content })),
+    famille,
+  );
+}
+
+async function appelerOutil(systeme: string, messages: Anthropic.MessageParam[], famille?: Famille): Promise<ReponseIA> {
   const anthropic = client();
   if (!anthropic) throw new Error("ANTHROPIC_API_KEY manquante");
 
-  const systeme = `${SYSTEME}\n\nSchéma JSON de la fiche projet :\n${SCHEMA_FICHE}${
-    famille ? `\n\nLe client a déjà choisi la famille : ${famille}.` : ""
-  }`;
-
   // Sonnet 5.5 n'accepte plus tool_choice « tool » / « any » (400) : on laisse « auto » et le système
   // impose l'outil ; si le modèle répond quand même en texte, on le relance une fois.
-  const messages: Anthropic.MessageParam[] = tours.map((t) => ({ role: t.role, content: t.content }));
   const appeler = (m: Anthropic.MessageParam[]) =>
     anthropic.messages.create({
       model: MODELE,

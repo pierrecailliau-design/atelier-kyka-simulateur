@@ -49,6 +49,7 @@ export default function Simulateur() {
   const [rappel, setRappel] = useState<"non" | "envoi" | "fait">("non");
   const [creneau, setCreneau] = useState<Creneau>("indifferent");
   const capture = useRef<(() => string) | null>(null);
+  const [modif, setModif] = useState<{ etat: "repos" | "envoi" | "fait" | "question"; retour?: string }>({ etat: "repos" });
 
   /* ---------------------------------------------------------- appels API */
   async function appelFiche(corps: Record<string, unknown>) {
@@ -85,6 +86,30 @@ export default function Simulateur() {
     const nouveaux: Tour[] = [...tours, { role: "user", content: contenu }];
     setTours(nouveaux);
     appelFiche({ tours: nouveaux, famille });
+  }
+
+  /** Devant la 3D, le client écrit ce qu'il veut changer : la fiche revient mise à jour, les réglages suivent. */
+  async function modifierParTexte(demande: string) {
+    if (!fiche || !demande.trim()) return;
+    setModif({ etat: "envoi" });
+    try {
+      const res = await fetch("/api/fiche", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fiche, demande }) });
+      const data = (await res.json()) as ReponseApi & { erreur?: string };
+      if (!res.ok) throw new Error(data.erreur ?? "Erreur");
+      suivre("modification_texte", { famille: fiche.famille, statut: data.statut });
+      if (data.statut === "fiche") {
+        setFiche(data.fiche);
+        setFamille(data.fiche.famille);
+        setModif({ etat: "fait", retour: data.message || "C'est fait." });
+      } else if (data.statut === "questions") {
+        const q = data.questions[0];
+        setModif({ etat: "question", retour: [data.message, q?.question].filter(Boolean).join(" ") || "Pouvez-vous préciser ?" });
+      } else {
+        setModif({ etat: "question", retour: data.message || "Je ne peux vous aider que sur ce meuble." });
+      }
+    } catch (e) {
+      setModif({ etat: "question", retour: e instanceof Error ? e.message : "Une erreur est survenue, réessayez." });
+    }
   }
 
   function choisirFamille(f: Famille) {
@@ -291,7 +316,8 @@ export default function Simulateur() {
             {etape === "configurateur" && (
               <>
                 <h2 className="text-lg font-semibold text-stone-900">Ajustez votre projet</h2>
-                <p className="mb-5 mt-1 text-sm text-stone-500">Chaque réglage met à jour le dessin et l’estimation.</p>
+                <p className="mt-1 text-sm text-stone-500">Dites-nous ce que vous voulez changer, ou utilisez les réglages : le dessin et l’estimation suivent.</p>
+                <DemandeTexte etat={modif.etat} retour={modif.retour} onEnvoyer={modifierParTexte} />
                 <Controles fiche={fiche} onChange={setFiche} />
                 <button type="button" onClick={() => setEtape("contact")} className="mt-6 w-full rounded-full bg-[#8a5a2b] px-6 py-3 font-medium text-white hover:bg-[#75491f]">
                   Voir mon estimation
@@ -455,6 +481,45 @@ function QuestionBloc({ question, valeur, onChange }: { question: Question; vale
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Boîte « dites-nous ce que vous voulez changer » au-dessus des réglages : le client continue de parler à l'artisan. */
+function DemandeTexte({ etat, retour, onEnvoyer }: { etat: "repos" | "envoi" | "fait" | "question"; retour?: string; onEnvoyer: (demande: string) => void }) {
+  const [texte, setTexte] = useState("");
+  const envoyer = () => {
+    const t = texte.trim();
+    if (!t || etat === "envoi") return;
+    onEnvoyer(t);
+    setTexte("");
+  };
+  return (
+    <div className="mb-5 mt-3">
+      <form
+        className="flex items-center gap-2 rounded-2xl border border-stone-200 bg-[#faf8f4] p-1.5 pl-3 focus-within:border-[#8a5a2b]"
+        onSubmit={(e) => {
+          e.preventDefault();
+          envoyer();
+        }}
+      >
+        <input
+          value={texte}
+          onChange={(e) => setTexte(e.target.value.slice(0, 600))}
+          placeholder="Ex. : ajoute deux tiroirs, passe en chêne, enlève les portes…"
+          aria-label="Ce que vous voulez changer"
+          className="min-w-0 flex-1 bg-transparent py-1.5 text-sm text-stone-900 outline-none placeholder:text-stone-400"
+          disabled={etat === "envoi"}
+        />
+        <button type="submit" disabled={etat === "envoi" || !texte.trim()} aria-label="Appliquer" className="shrink-0 rounded-xl bg-[#8a5a2b] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#75491f] disabled:opacity-40">
+          {etat === "envoi" ? "…" : "Appliquer"}
+        </button>
+      </form>
+      {retour && etat !== "envoi" && (
+        <p className={`mt-2 text-xs ${etat === "fait" ? "text-emerald-700" : "text-amber-800"}`} role="status">
+          {retour}
+        </p>
+      )}
     </div>
   );
 }
